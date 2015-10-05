@@ -15,7 +15,9 @@ from chimera.controllers.imageserver.util         import getImageServer
 from chimera.util.image import Image
 from chimera.util.output import red, green
 
+from chimera_autoalign.util.mkoptics import MkOptics,HexapodAxes
 from astropy import units
+from collections import OrderedDict
 from astropy.coordinates import Angle
 
 plot = True
@@ -64,6 +66,8 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'ngrid': 64, # half-size of computing grid, 64 recommended
                   'thresh' : 0.05, # relative threshould for fitted intensities
                   'nzer': 8, # number of fitted Zernike terms
+                  'mpi_threads': 8,
+                  'mpi_use': True,
                   }
 
     def __init__(self):
@@ -114,26 +118,38 @@ class AutoAlign(ChimeraObject,IAutofocus):
         if window:
             self.imageRequest["window"] = window
 
-        # 1. Take an image to work on
-        frame = self._takeImage()
+        # Sets up order and threshould
+        alignOrder = OrderedDict([('astigmatism',10.*units.arcsec),
+                                  ('comma',0.006*units.mm)])
 
-        # 2. Make a catalog of sources
-        cat = self._findStars(frame)
-        if len(cat) < minimum_star and minimum_star > 0:
-            raise StarNotFoundException("Could not find the required number of stars. Found %i of %i."%(len(cat),
-                                                                                                        minimum_star))
+        hexapod_offset = HexapodAxes()
 
-        if check_stellar_ditribution:
-            self.checkDistribution(cat)
+        current_aberration_id = 0
+        current_aberration_name = alignOrder.keys()[current_aberration_id]
 
-        # 3. Calculate zernike coefficients for each source
-        zerncoeff = self._donutFit(frame,cat)
+        while True:
+            # 1. Take an image to work on
+            image = self._takeImage()
 
-        # 4. Get hexapod offset
-        hexapod_offset = self._getHexapodOffset(zerncoeff)
+            # 2. Make a catalog of sources
+            cat = self._findStars(image)
+            if len(cat) < minimum_star and minimum_star > 0:
+                raise StarNotFoundException("Could not find the required number of stars. Found %i of %i."%(len(cat),
+                                                                                                            minimum_star))
 
-        # 5. Apply correction
-        self._moveHexapod(hexapod_offset)
+            if check_stellar_ditribution:
+                self.checkDistribution(cat)
+
+            mkopt = MkOptics()
+
+            mkopt.setCFP(self["cfp"]*units.mm)
+            mkopt.setPixScale(np.float(image['CCDPSZX'])*units.micron)
+            mkopt.setMPIThreads(self["mpi_threads"])
+
+            hexapod_offset = mkopt.align(image.filename)
+
+            # 5. Apply correction
+            self._moveHexapod(hexapod_offset,current_aberration_name)
 
         return hexapod_offset
 
@@ -170,20 +186,6 @@ class AutoAlign(ChimeraObject,IAutofocus):
         if np.any(mask_starpg):
             raise StarDistributionException('Stellar distribution not suitable for optical alignment.')
 
-
-    def _donutFit(self,frame,cat):
-        return None
-
-    def _getHexapodOffset(self,zern):
-
-        hexapod = { 'X' : 0.*units.mm,
-                    'Y' : 0.*units.mm,
-                    'Z' : 0.*units.mm,
-                    'U' : Angle(0.*units.degree),
-                    'V' : Angle(0.*units.degree),
-                    'W' : Angle(0.*units.degree)}
-
-        return hexapod
 
     def _moveHexapod(self,offsets):
 
