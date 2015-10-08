@@ -1,0 +1,206 @@
+#! /usr/bin/env python
+# -*- coding: iso-8859-1 -*-
+
+# chimera - observatory automation system
+# Copyright (C) 2006-2007  P. Henrique Silva <henrique@astro.ufsc.br>
+
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+from chimera.core.cli import ChimeraCLI, action, parameter, ParameterType
+from chimera.core.callback import callback
+#from chimera.core.exceptions import ChimeraException
+
+from chimera.interfaces.autofocus import StarNotFoundException, FocusNotFoundException
+from chimera.interfaces.focuser import InvalidFocusPositionException, FocuserFeature
+from chimera.interfaces.filterwheel import InvalidFilterPositionException
+from chimera.util.sextractor import SExtractorException
+
+from chimera.util.ds9 import DS9
+
+import sys
+import time
+import os
+import re
+from astropy import units as u
+
+class ChimeraAutoAlign(ChimeraCLI):
+
+    def __init__(self):
+        ChimeraCLI.__init__(
+            self, "chimera-autoalign", "Focuser/Hexapod controller", 0.1, port=9004)
+
+        self.addHelpGroup("FOCUS", "Focus")
+        self.addInstrument(name="focuser",
+                           cls="Focuser",
+                           required=True,
+                           helpGroup="FOCUS",
+                           help="Focuser instrument to be used")
+        self.addController(name="autoalign",
+                           cls="Autoalign",
+                           required=False,
+                           helpGroup="FOCUS",
+                           help="Autoalign controller to be used")
+
+        self.addHelpGroup("AUTOALIGN", "Autoalign")
+        self.addParameters(dict(name="autoalign_exptime",
+                                short="-t",
+                                long="exptime",
+                                type="float",
+                                helpGroup="AUTOALIGN",
+                                help="Defines autoalign frame exposure time.",
+                                metavar="EXPTIME",
+                                default=30.0),
+                           dict(name="autoalign_nodisplay",
+                                long="disable-display",
+                                type=ParameterType.BOOLEAN,
+                                helpGroup="AUTOALIGN",
+                                help="Disable interactive display during autoalign",
+                                default=False),
+                           dict(name="autoalign_mark",
+                                long="mark",
+                                type=ParameterType.BOOLEAN,
+                                helpGroup="AUTOALIGN",
+                                help="Mark stars used for donut fit on display (only relevant wif display is enable)",
+                                default=False),
+                           dict(name="autoalign_filter",
+                                long="filter",
+                                helpGroup="AUTOALIGN",
+                                help="Which filter to use in the autoalign run.",
+                                default="use-current-filter"),
+                           dict(name="autoalign_defocus",
+                                long="defocus",
+                                helpGroup="AUTOALIGN",
+                                help="How much to defocus the telescope before starting autoalign.",
+                                default=None),
+                           dict(name="autoalign_intra",
+                                long="intra",
+                                type=ParameterType.BOOLEAN,
+                                helpGroup="AUTOALIGN",
+                                help="Image is intra-focal",
+                                default=True),
+                           dict(name="autoalign_binning",
+                                long="binning",
+                                helpGroup="AUTOALIGN",
+                                help="Binning to use in acquisition.",
+                                default=1),
+                           dict(name="autoalign_window",
+                                long="window",
+                                helpGroup="AUTOALIGN",
+                                help="Window to use in acquisition.",
+                                default=None),
+                           dict(name="autoalign_check_stellar_ditribution",
+                                long="check",
+                                helpGroup="AUTOALIGN",
+                                help="Check stellar distribution during autoalign procedure.",
+                                default=None),
+                           dict(name="autoalign_minimum_star",
+                                long="minimum_star",
+                                helpGroup="AUTOALIGN",
+                                help="Minimum number of stars to be used in the align procedure.",
+                                default=100),
+                           dict(name="autoalign_niter",
+                                long="niter",
+                                helpGroup="AUTOALIGN",
+                                help="Maximum number of iterations.",
+                                default=None),
+                           )
+
+    @action(helpGroup="AUTOALIGN",
+            help="Start an autoalign session using the selected parameters.")
+    def auto(self, options):
+
+        if not self.autoalign:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        ds9 = None
+        mark = options.autoalign_mark
+
+        if not options.autoalign_nodisplay:
+            try:
+                ds9 = DS9(open=True)
+            except IOError:
+                pass
+
+        @callback(self.localManager)
+        def stepComplete(position, star, frame):
+
+            self.out('# Offset X: %s'
+                     '# Offset Y: %s'
+                     '# Offset Z: %s'
+                     '# Offset U: %s'
+                     '# Offset V: %s'%( position.X,
+                                        position.Y,
+                                        position.Z,
+                                        position.U.to_string(unit=u.degree, sep=(':', ':', ' ')),
+                                        position.V.to_string(unit=u.degree, sep=(':', ':', ' ')) ) )
+
+            if ds9:
+                ds9.displayFile(frame.filename())
+                if mark:
+                    for s in star:
+                        ds9.set("regions command { circle %d %d %d}" % (
+                                int(star["XWIN_IMAGE"]), int(star["YWIN_IMAGE"]), int(star["FWHM_IMAGE"])))
+                ds9.set("scale mode 99.5")
+
+
+        self.autoalign.stepComplete += stepComplete
+
+        if options.autoalign_filter == "use-current-filter":
+            filter = False
+        else:
+            filter = options.autoalign_filter
+
+        if options.autoalign_defocus is not None:
+            if options.autoalign_intra:
+                self.focuser.moveIn(options.autoalign_defocus)
+            else:
+                self.focuser.moveOut(options.autoalign_defocus)
+
+        try:
+            result = self.autoalign.align(filter=filter, exptime=options.autoalign_exptime,
+                                          binning=options.autoalign_binning,
+                                          window=options.autoalign_window,
+                                          intra=options.autoalign_intra,
+                                          check_stellar_ditribution=options.autoalign_check_stellar_ditribution,
+                                          minimum_star=options.autoalign_minimum_star,
+                                          niter=options.autoalign_niter)
+
+            self.out("Best focus position found at %s." % result.Z)
+
+
+        except IOError, e:
+            self.exit(str(e))
+        except FocusNotFoundException, e:
+            self.exit(str(e))
+        except StarNotFoundException, e:
+            self.exit(str(e))
+        except SExtractorException:
+            self.exit(
+                "Couldn't find SExtractor. If you have it installed, please add it to yout PATH variable.")
+        except InvalidFilterPositionException, e:
+            self.exit(str(e))
+
+        time.sleep(1)
+
+def main():
+    cli = ChimeraAutoAlign()
+    cli.run(sys.argv)
+    cli.wait()
+
+if __name__ == '__main__':
+
+    main()

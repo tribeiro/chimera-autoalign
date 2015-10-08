@@ -74,6 +74,26 @@ class HexapodAxes():
     w = property(getW,setW)
     seeing = property(getSeeing,setSeeing)
 
+    def __getattr__(self, item):
+        if item == 'comma':
+            return {'X':self.x,'Y':self.y}
+        elif item == 'astigmatism':
+            return {'U':self.u,'V':self.v}
+        elif item == 'focus':
+            return {'Z':self.z}
+        else:
+            raise IndexError('Options are: comma, astigmatism or focus.')
+
+    def __setattr__(self, key, value):
+        if key == 'comma':
+            self.x,self.y = value[0],value[1]
+        elif key == 'astigmatism':
+            self.u,self.v = value[0],value[1]
+        elif key == 'focus':
+            self.z = value
+        else:
+            raise IndexError('Options are: comma, astigmatism or focus.')
+
 class MkOptics(SExtractor):
 
     ZERNPAR = { "donpar":[ {    "D": 0.8200  ,

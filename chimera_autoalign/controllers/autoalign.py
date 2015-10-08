@@ -34,6 +34,9 @@ import logging
 class StarDistributionException(ChimeraException):
     pass
 
+class AutoAlignException(ChimeraException):
+    pass
+
 class AutoAlign(ChimeraObject,IAutofocus):
 
     """
@@ -91,14 +94,14 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
     @lock
     def align(self, filter=None, exptime=None, binning=None, window=None,
-               focus=0, intra=True, check_stellar_ditribution=True,minimum_star=100):
+              intra=True, check_stellar_ditribution=True,minimum_star=100,niter=10):
 
         self.currentRun = self._getID()
 
-        self.log.debug("="*40)
-        self.log.debug("[%s] Starting autoalign run." % time.strftime("%c"))
-        self.log.debug("="*40)
-        self.log.debug("Focus offset: %f" % (focus))
+        # self.log.debug("="*40)
+        # self.log.debug("[%s] Starting autoalign run." % time.strftime("%c"))
+        # self.log.debug("="*40)
+        # self.log.debug("Focus offset: %f" % (focus))
 
         self.imageRequest = ImageRequest()
         self.imageRequest["exptime"] = exptime or 10
@@ -119,15 +122,14 @@ class AutoAlign(ChimeraObject,IAutofocus):
             self.imageRequest["window"] = window
 
         # Sets up order and threshould
-        alignOrder = OrderedDict([('astigmatism',10.*units.arcsec),
-                                  ('comma',0.006*units.mm)])
+        alignOrder = OrderedDict([('comma',0.009*units.mm),
+                                  ('astigmatism',10.*units.arcsec)])
 
+        done = False
+        iter = 0
         hexapod_offset = HexapodAxes()
 
-        current_aberration_id = 0
-        current_aberration_name = alignOrder.keys()[current_aberration_id]
-
-        while True:
+        while not done:
             # 1. Take an image to work on
             image = self._takeImage()
 
@@ -140,6 +142,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
             if check_stellar_ditribution:
                 self.checkDistribution(cat)
 
+            # 3. Calculate hexapod offsets
             mkopt = MkOptics()
 
             mkopt.setCFP(self["cfp"]*units.mm)
@@ -147,9 +150,34 @@ class AutoAlign(ChimeraObject,IAutofocus):
             mkopt.setMPIThreads(self["mpi_threads"])
 
             hexapod_offset = mkopt.align(image.filename)
+            applied = False
 
-            # 5. Apply correction
-            self._moveHexapod(hexapod_offset,current_aberration_name)
+            for current_aberration_name in alignOrder:
+
+                apply_offset = hexapod_offset[current_aberration_name]
+                # 3.1 check if offset on current aberration been corrected is higher than threshold and apply correction
+                for ab_key in apply_offset:
+                    if np.abs(apply_offset[ab_key]) > alignOrder[current_aberration_name]:
+                        self._applyHexapodOffset(ab_key,apply_offset[ab_key])
+                        applied = True
+
+                if applied:
+                    break
+
+            if not applied:
+                # Break if no correction was applied
+                break
+
+            if iter > niter:
+                self.log.warning('Maximum number of iterations reached.')
+                break
+
+            self.stepComplete(hexapod_offset,None,image)
+
+            iter += 1
+
+        # Apply focus and return
+        self._applyHexapodOffset('Z',hexapod_offset.z)
 
         return hexapod_offset
 
@@ -186,10 +214,6 @@ class AutoAlign(ChimeraObject,IAutofocus):
         if np.any(mask_starpg):
             raise StarDistributionException('Stellar distribution not suitable for optical alignment.')
 
-
-    def _moveHexapod(self,offsets):
-
-        pass
 
     def _takeImage(self):
 
@@ -232,3 +256,24 @@ class AutoAlign(ChimeraObject,IAutofocus):
         catalogName = os.path.splitext(frame.filename())[0] + ".catalog"
         configName = os.path.splitext(frame.filename())[0] + ".config"
         return frame.extract(config, saveCatalog=catalogName, saveConfig=configName)
+
+    def _applyHexapodOffset(self,axis,offset):
+
+        focuser = self.getFocuser()
+
+        if axis.upper() in ['X','Y','Z']:
+            # move should be in steps
+            if offset.value > 0.:
+                focuser.moveOut(np.abs(offset.to(units.mm).value)/focuser["step"],
+                                axis.upper())
+            else:
+                focuser.moveIn(np.abs(offset.to(units.mm).value)/focuser["step"],
+                               axis.upper())
+        elif axis.upper() in ['U','V']:
+            # move should be in degrees
+            if offset.value > 0.:
+                focuser.moveOut(np.abs(offset.to(units.degrees).value)/focuser["step"],
+                                axis.upper())
+            else:
+                focuser.moveIn(np.abs(offset.to(units.degrees).value)/focuser["step"],
+                               axis.upper())
