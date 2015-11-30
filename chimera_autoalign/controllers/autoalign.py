@@ -73,6 +73,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'nzer': 8, # number of fitted Zernike terms
                   'mpi_threads': 8,
                   'mpi_use': True,
+                  'align_focus' : 0.,
                   'sign_x' : +1.,
                   'sign_y' : +1.,
                   'sign_u' : +1.,
@@ -124,6 +125,13 @@ class AutoAlign(ChimeraObject,IAutofocus):
             self.filter = False
             self.log.debug("Using current filter.")
 
+        # set focus
+        focuser = self.getFocuser()
+        currentFocus = focuser.getPosition()
+        currentOffset = focuser.getOffset()
+
+        offset = float(self["align_focus"]) - currentFocus + currentOffset
+        focuser.moveTo(offset)
 
         # Sets up order and threshould
         alignOrder = OrderedDict([('comma',0.009*units.mm),
