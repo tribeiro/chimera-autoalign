@@ -9,15 +9,17 @@ from chimera.core.exceptions import ChimeraException, ClassLoaderException
 from chimera.core.constants import SYSTEM_CONFIG_DIRECTORY
 from chimera.interfaces.autofocus import Autofocus as IAutofocus
 from chimera.interfaces.autofocus import StarNotFoundException, FocusNotFoundException
-from chimera.interfaces.focuser import InvalidFocusPositionException
+from chimera.interfaces.focuser import InvalidFocusPositionException, FocuserAxis
 from chimera.controllers.imageserver.imagerequest import ImageRequest
 from chimera.controllers.imageserver.util         import getImageServer
 from chimera.util.image import Image
 from chimera.util.output import red, green
+from chimera.util.image import ImageUtil, Image
 
 from chimera_autoalign.util.mkoptics import MkOptics,HexapodAxes
 from astropy import units
 from collections import OrderedDict
+import ntpath
 from astropy.coordinates import Angle
 
 plot = True
@@ -71,6 +73,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'nzer': 8, # number of fitted Zernike terms
                   'mpi_threads': 8,
                   'mpi_use': True,
+                  'sign_x' : +1.,
+                  'sign_y' : +1.,
+                  'sign_u' : +1.,
+                  'sign_v' : +1.,
                   }
 
     def __init__(self):
@@ -107,6 +113,9 @@ class AutoAlign(ChimeraObject,IAutofocus):
         self.imageRequest["exptime"] = exptime or 10
         self.imageRequest["frames"] = 1
         self.imageRequest["shutter"] = "OPEN"
+        if binning is not None:
+            self.imageRequest["binning"] = binning
+        self.imageRequest["window"] = window
 
         if filter:
             self.filter = filter
@@ -115,11 +124,6 @@ class AutoAlign(ChimeraObject,IAutofocus):
             self.filter = False
             self.log.debug("Using current filter.")
 
-        if binning:
-            self.imageRequest["binning"] = binning
-
-        if window:
-            self.imageRequest["window"] = window
 
         # Sets up order and threshould
         alignOrder = OrderedDict([('comma',0.009*units.mm),
@@ -129,8 +133,12 @@ class AutoAlign(ChimeraObject,IAutofocus):
         iter = 0
         hexapod_offset = HexapodAxes()
 
+        camera = self.getCam()
+        pixsize = camera.getPixelSize()[0]
+
         while not done:
             # 1. Take an image to work on
+            self.log.debug('Taking image')
             image = self._takeImage()
 
             # 2. Make a catalog of sources
@@ -144,12 +152,17 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
             # 3. Calculate hexapod offsets
             mkopt = MkOptics()
+            mkopt.sign_u = int(self['sign_u'])
+            mkopt.sign_v = int(self['sign_v'])
+            mkopt.sign_x = int(self['sign_x'])
+            mkopt.sign_y = int(self['sign_y'])
 
-            mkopt.setCFP(self["cfp"]*units.mm)
-            mkopt.setPixScale(np.float(image['CCDPSZX'])*units.micron)
+            mkopt.setCFP(float(self["cfp"])*units.mm)
+
+            mkopt.setPixScale(pixsize*units.micron)
             mkopt.setMPIThreads(self["mpi_threads"])
 
-            hexapod_offset = mkopt.align(image.filename)
+            hexapod_offset = mkopt.align(image.filename())
             applied = False
 
             for current_aberration_name in alignOrder:
@@ -164,17 +177,16 @@ class AutoAlign(ChimeraObject,IAutofocus):
                 if applied:
                     break
 
+            self.stepComplete(hexapod_offset,None,image)
+
             if not applied:
                 # Break if no correction was applied
                 break
 
-            if iter > niter:
-                self.log.warning('Maximum number of iterations reached.')
-                break
-
-            self.stepComplete(hexapod_offset,None,image)
-
             iter += 1
+            if iter >= niter:
+                self.log.warning('Iter = %i. Maximum number of iterations (%i) reached.' % (iter, niter))
+                break
 
         # Apply focus and return
         self._applyHexapodOffset('Z',hexapod_offset.z)
@@ -216,21 +228,52 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
 
     def _takeImage(self):
-
-        self.imageRequest["filename"] = os.path.join(SYSTEM_CONFIG_DIRECTORY, self.currentRun, "align.fits")
-
         cam = self.getCam()
 
         if self.filter:
             filter = self.getFilter()
             filter.setFilter(self.filter)
 
-        frame = cam.expose(self.imageRequest)
+        self.imageRequest["filename"] = os.path.basename(ImageUtil.makeFilename("align-$DATE"))
 
-        if frame:
-            return frame[0]
+        frames = cam.expose(self.imageRequest)
+
+        if frames:
+            image = frames[0]
+            image_path = image.filename()
+            if not os.path.exists(image_path):  # If image is on a remote server, donwload it.
+
+                #  If remote is windows, image_path will be c:\...\image.fits, so use ntpath instead of os.path.
+                if ':\\' in image_path:
+                    modpath = ntpath
+                else:
+                    modpath = os.path
+                image_path = ImageUtil.makeFilename(os.path.join(getImageServer(self.getManager()).defaultNightDir(),
+                                                                 modpath.basename(image_path)))
+                t0 = time.time()
+                self.log.debug('Downloading image from server to %s' % image_path)
+                if not ImageUtil.download(image, image_path):
+                    raise ChimeraException('Error downloading image %s from %s' % (image_path, image.http()))
+                self.log.debug('Finished download. Took %3.2f seconds' % (time.time() - t0))
+                image = Image.fromFile(image_path)
+            return image #image_path #, image
         else:
-            raise Exception("Error taking image.")
+            raise Exception("Could not take an image")
+
+        # self.imageRequest["filename"] = os.path.join(SYSTEM_CONFIG_DIRECTORY, self.currentRun, "align.fits")
+        #
+        # cam = self.getCam()
+        #
+        # if self.filter:
+        #     filter = self.getFilter()
+        #     filter.setFilter(self.filter)
+        #
+        # frame = cam.expose(self.imageRequest)
+        #
+        # if frame:
+        #     return frame[0]
+        # else:
+        #     raise Exception("Error taking image.")
 
     def _findStars(self, frame):
 
@@ -264,16 +307,16 @@ class AutoAlign(ChimeraObject,IAutofocus):
         if axis.upper() in ['X','Y','Z']:
             # move should be in steps
             if offset.value > 0.:
-                focuser.moveOut(np.abs(offset.to(units.mm).value)/focuser["step"],
-                                axis.upper())
+                focuser.moveOut(np.abs(offset.to(units.mm).value)/focuser["step_%s" % axis.lower()],
+                                FocuserAxis.fromStr(axis.upper()))
             else:
-                focuser.moveIn(np.abs(offset.to(units.mm).value)/focuser["step"],
-                               axis.upper())
+                focuser.moveIn(np.abs(offset.to(units.mm).value)/focuser["step_%s" % axis.lower()],
+                               FocuserAxis.fromStr(axis.upper()))
         elif axis.upper() in ['U','V']:
             # move should be in degrees
             if offset.value > 0.:
-                focuser.moveOut(np.abs(offset.to(units.degrees).value)/focuser["step"],
-                                axis.upper())
+                focuser.moveOut(np.abs(offset.to(units.degree).value)/focuser["step_%s" % axis.lower()],
+                                FocuserAxis.fromStr(axis.upper()))
             else:
-                focuser.moveIn(np.abs(offset.to(units.degrees).value)/focuser["step"],
-                               axis.upper())
+                focuser.moveIn(np.abs(offset.to(units.degree).value)/focuser["step_%s" % axis.lower()],
+                               FocuserAxis.fromStr(axis.upper()))

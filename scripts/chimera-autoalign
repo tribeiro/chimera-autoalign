@@ -49,8 +49,8 @@ class ChimeraAutoAlign(ChimeraCLI):
                            helpGroup="FOCUS",
                            help="Focuser instrument to be used")
         self.addController(name="autoalign",
-                           cls="Autoalign",
-                           required=False,
+                           cls="AutoAlign",
+                           required=True,
                            helpGroup="FOCUS",
                            help="Autoalign controller to be used")
 
@@ -95,7 +95,7 @@ class ChimeraAutoAlign(ChimeraCLI):
                                 long="binning",
                                 helpGroup="AUTOALIGN",
                                 help="Binning to use in acquisition.",
-                                default=1),
+                                default=None),
                            dict(name="autoalign_window",
                                 long="window",
                                 helpGroup="AUTOALIGN",
@@ -107,15 +107,17 @@ class ChimeraAutoAlign(ChimeraCLI):
                                 help="Check stellar distribution during autoalign procedure.",
                                 default=None),
                            dict(name="autoalign_minimum_star",
+                                type=int,
                                 long="minimum_star",
                                 helpGroup="AUTOALIGN",
                                 help="Minimum number of stars to be used in the align procedure.",
                                 default=100),
                            dict(name="autoalign_niter",
                                 long="niter",
+                                type=int,
                                 helpGroup="AUTOALIGN",
-                                help="Maximum number of iterations.",
-                                default=None),
+                                help="Maximum number of iterations. (default = 10)",
+                                default=10),
                            )
 
     @action(helpGroup="AUTOALIGN",
@@ -142,11 +144,11 @@ class ChimeraAutoAlign(ChimeraCLI):
                      '# Offset Y: %s'
                      '# Offset Z: %s'
                      '# Offset U: %s'
-                     '# Offset V: %s'%( position.X,
-                                        position.Y,
-                                        position.Z,
-                                        position.U.to_string(unit=u.degree, sep=(':', ':', ' ')),
-                                        position.V.to_string(unit=u.degree, sep=(':', ':', ' ')) ) )
+                     '# Offset V: %s'%( position.x,
+                                        position.y,
+                                        position.z,
+                                        position.u.to_string(unit=u.degree, sep=(':', ':', ' ')),
+                                        position.v.to_string(unit=u.degree, sep=(':', ':', ' ')) ) )
 
             if ds9:
                 ds9.displayFile(frame.filename())
@@ -166,9 +168,9 @@ class ChimeraAutoAlign(ChimeraCLI):
 
         if options.autoalign_defocus is not None:
             if options.autoalign_intra:
-                self.focuser.moveIn(options.autoalign_defocus)
+                self.focuser.moveIn(int(options.autoalign_defocus))
             else:
-                self.focuser.moveOut(options.autoalign_defocus)
+                self.focuser.moveOut(int(options.autoalign_defocus))
 
         try:
             result = self.autoalign.align(filter=filter, exptime=options.autoalign_exptime,
@@ -179,7 +181,7 @@ class ChimeraAutoAlign(ChimeraCLI):
                                           minimum_star=options.autoalign_minimum_star,
                                           niter=options.autoalign_niter)
 
-            self.out("Best focus position found at %s." % result.Z)
+            self.out("Best focus position found at %s." % result.z)
 
 
         except IOError, e:

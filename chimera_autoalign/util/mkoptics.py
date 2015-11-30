@@ -13,7 +13,7 @@ import shutil
 
 import logging
 #import chimera.core.log
-log = logging.getLogger(__name__)
+log = logging.getLogger(__name__.replace('chimera_autoalign','chimera'))
 
 class MkOpticsException(Exception):
     pass
@@ -74,7 +74,7 @@ class HexapodAxes():
     w = property(getW,setW)
     seeing = property(getSeeing,setSeeing)
 
-    def __getattr__(self, item):
+    def __getitem__(self, item):
         if item == 'comma':
             return {'X':self.x,'Y':self.y}
         elif item == 'astigmatism':
@@ -84,7 +84,7 @@ class HexapodAxes():
         else:
             raise IndexError('Options are: comma, astigmatism or focus.')
 
-    def __setattr__(self, key, value):
+    def __setitem__(self, key, value):
         if key == 'comma':
             self.x,self.y = value[0],value[1]
         elif key == 'astigmatism':
@@ -92,14 +92,14 @@ class HexapodAxes():
         elif key == 'focus':
             self.z = value
         else:
-            raise IndexError('Options are: comma, astigmatism or focus.')
+            raise IndexError('Options are: comma, astigmatism or focus. Got %s' % key)
 
 class MkOptics(SExtractor):
 
     ZERNPAR = { "donpar":[ {    "D": 0.8200  ,
                                "EPS": 0.322 ,
                                "ALAMBDA": 0.800000 ,
-                               "PIXEL": 0.548000 ,
+                               "PIXEL": 0.55000 ,
                                "NGRID": 64 ,
                                "RON": 10.0000 ,
                                "EADU": 2.00000 ,
@@ -140,6 +140,12 @@ class MkOptics(SExtractor):
         self.setCFP(0.*units.meter)
         self.setPixScale(0.*units.mm)
 
+        self.sign_x = +1.
+        self.sign_y = +1.
+        self.sign_u = +1.
+        self.sign_v = +1.
+
+
     @units.quantity_input(cfp=units.meter)
     def setCFP(self,cfp):
         self._cfp = cfp
@@ -152,10 +158,10 @@ class MkOptics(SExtractor):
         return self._cfp
 
     def getPixScale(self):
-        return self._cfp
+        return self._pix
 
     cfp = property(getCFP,setCFP)
-    pixscale = property(getPixScale(),setPixScale)
+    pixscale = property(getPixScale,setPixScale)
 
     def useMPI(self,opt=None):
         if opt is None:
@@ -225,7 +231,7 @@ class MkOptics(SExtractor):
         return _program, _version
 
 
-    def align(self,file):
+    def align(self,ffile):
         '''
 
         :param file: Image to be processed.
@@ -233,20 +239,21 @@ class MkOptics(SExtractor):
         '''
 
         log.debug('Running sextractor')
-        self.run(file, clean=False)
+        self.run(ffile, clean=False)
 
         # Now calculates Zernike coeficients.
-        outname = os.path.basename(file).replace('.fits','_zern.npy')
+        outname = ffile.replace('.fits','_zern.npy')
 
         tmpCat = NamedTemporaryFile(delete=False)
         with open(tmpCat.name,'w') as fp:
             json.dump(self.ZERNPAR,fp)
 
-        program,version = self.setupDonut()
+        #program,version = self.setupDonut(os.path.expanduser('~/Develop/donut/script/donut'))
+        program,version = os.path.expanduser('~/Develop/donut/script/donut'),"0.0"
 
-        cmd = '%s -i %s -p %s -c %s -o %s'%(program,
-                                            file,
-                                            tmpCat,
+        cmd = 'python %s -i %s -p %s -c %s -o %s'%(program,
+                                            ffile,
+                                            tmpCat.name,
                                             self.config['CATALOG_NAME'],
                                             outname)
 
@@ -260,13 +267,13 @@ class MkOptics(SExtractor):
 
         log.info('Mapping hexapod position')
 
-        hdr = fits.getheader(file)
+        hdr = fits.getheader(ffile)
 
         zmap = ZernMap(cfp = self.getCFP(),
                        pix2mm = self.getPixScale(),
-                       center = [hdr['NAXIS1']/2,hdr['NAXIS2']/2])
+                       center = [0,0]) # [hdr['NAXIS1']/2,hdr['NAXIS2']/2])
 
-        rcat = np.load(outname)
+        rcat = np.load(outname).T
 
         cat = np.array([])
 
@@ -277,6 +284,8 @@ class MkOptics(SExtractor):
         fitmask = cat[0] == 1
         cat = cat[1:]
 
+        log.debug('cat.shape: %s'%cat.shape.__str__())
+
         id_seeing = 2
         id_focus = 5
         id_astigx = 6
@@ -286,17 +295,18 @@ class MkOptics(SExtractor):
 
         planeU = zmap.astigmatism(cat[0],cat[1],cat[id_astigx]*self.config['PIXEL_SCALE'],0)
         planeV = zmap.astigmatism(cat[0],cat[1],cat[id_astigy]*self.config['PIXEL_SCALE'],1)
-        comaX,mask = zmap.comma(cat[0],cat[id_commax]*self.config['PIXEL_SCALE'],0)
-        comaY,mask = zmap.comma(cat[1],cat[id_commay]*self.config['PIXEL_SCALE'],1)
+        log.debug('cat[0]/cat[%i]: %s'%(id_commax,cat[id_commay].shape.__str__()))
+        comaX,mask = zmap.comma(cat[0],cat[id_commax]*self.config['PIXEL_SCALE'])
+        comaY,mask = zmap.comma(cat[1],cat[id_commay]*self.config['PIXEL_SCALE'])
         focus = zmap.map(cat[0],cat[1],cat[id_focus]*self.config['PIXEL_SCALE'])
         seeing = zmap.map(cat[0],cat[1],cat[id_seeing])
 
         hOffSet = HexapodAxes()
 
-        hOffSet.u = (planeU['U']+planeV['U'])/2.
-        hOffSet.v = (planeU['V']+planeV['V'])/2.
-        hOffSet.x = np.poly1d(comaX)(0.)*units.mm
-        hOffSet.y = np.poly1d(comaY)(0.)*units.mm
+        hOffSet.u = self.sign_u*(planeU['U']+planeV['U'])/2.
+        hOffSet.v = self.sign_v*(planeU['V']+planeV['V'])/2.
+        hOffSet.x = self.sign_x*np.poly1d(comaX)(0.)*units.mm
+        hOffSet.y = self.sign_y*np.poly1d(comaY)(0.)*units.mm
         hOffSet.z = focus[2]/10.*units.mm
         hOffSet.seeing = seeing[2]*units.arcsec
 
