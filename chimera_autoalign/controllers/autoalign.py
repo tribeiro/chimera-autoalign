@@ -17,6 +17,7 @@ from chimera.util.output import red, green
 from chimera.util.image import ImageUtil, Image
 
 from chimera_autoalign.util.mkoptics import MkOptics,HexapodAxes
+from chimera_autoalign.util.overscan import OverscanCorr
 from astropy import units
 from collections import OrderedDict
 import ntpath
@@ -32,6 +33,7 @@ from math import sqrt
 import time
 import os
 import logging
+
 
 class StarDistributionException(ChimeraException):
     pass
@@ -78,6 +80,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'sign_y' : +1.,
                   'sign_u' : +1.,
                   'sign_v' : +1.,
+                  'overscan_config' : None,
                   }
 
     def __init__(self):
@@ -148,6 +151,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
             # 1. Take an image to work on
             self.log.debug('Taking image')
             image = self._takeImage()
+
+            # 1.1 If there is an overscan configuration file, apply correction
+            if self['overscan_config'] is not None:
+                self._overscanCorr()
 
             # 2. Make a catalog of sources
             cat = self._findStars(image)
@@ -328,3 +335,22 @@ class AutoAlign(ChimeraObject,IAutofocus):
             else:
                 focuser.moveIn(np.abs(offset.to(units.degree).value)/focuser["step_%s" % axis.lower()],
                                FocuserAxis.fromStr(axis.upper()))
+
+    def _overscanCorr(self, frame):
+
+        overcorr = OverscanCorr()
+
+        overcorr.read(frame.filename())
+
+        overcorr.loadConfiguration(self['overscan_config'])
+
+        ccdout = overcorr.trim()
+
+        path = os.path.dirname(frame.filename())
+        fname = os.path.basename(frame.filename())
+
+        trimname = os.path.join(path,
+                                'trim_'+fname)
+        ccdout.write(trimname)
+
+        return Image.fromFile(trimname)
