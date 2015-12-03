@@ -196,7 +196,7 @@ class ChimeraAutoAlign(ChimeraCLI):
         except InvalidFilterPositionException, e:
             self.exit(str(e))
 
-        time.sleep(1)
+
 
 def main():
     cli = ChimeraAutoAlign()

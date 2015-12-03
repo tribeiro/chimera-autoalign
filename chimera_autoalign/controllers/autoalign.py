@@ -128,10 +128,13 @@ class AutoAlign(ChimeraObject,IAutofocus):
         # set focus
         focuser = self.getFocuser()
         currentFocus = focuser.getPosition()
-        currentOffset = focuser.getOffset()
 
-        offset = float(self["align_focus"]) - currentFocus + currentOffset
-        focuser.moveTo(offset)
+        offset = float(self["align_focus"]) - currentFocus
+        self.log.debug('Current focus: %f | AlignFocus: %f | Applyoffset: %f' % (currentFocus,
+                                                                                 self["align_focus"],
+                                                                                 offset) )
+
+        focuser.moveTo(offset/focuser['step_z'])
 
         # Sets up order and threshould
         alignOrder = OrderedDict([('comma',0.009*units.mm),
