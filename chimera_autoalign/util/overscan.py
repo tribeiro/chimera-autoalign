@@ -96,7 +96,7 @@ class OverscanCorr():
             self.loadConfiguration(kwargs['config'])
 
     def read(self,filename):
-        self.ccd = ccdproc.CCDData.read(filename)
+        self.ccd = ccdproc.CCDData.read(filename,unit='electron')
 
     def loadConfiguration(self,configfile):
         '''

@@ -131,8 +131,9 @@ class AutoAlign(ChimeraObject,IAutofocus):
         # set focus
         focuser = self.getFocuser()
         currentFocus = focuser.getPosition()
+        currentOffset = focuser.getOffset()
+        offset = float(self["align_focus"]) - currentFocus + currentOffset
 
-        offset = float(self["align_focus"]) - currentFocus
         self.log.debug('Current focus: %f | AlignFocus: %f | Applyoffset: %f' % (currentFocus,
                                                                                  self["align_focus"],
                                                                                  offset) )
@@ -157,7 +158,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
             # 1.1 If there is an overscan configuration file, apply correction
             if self['overscan_config'] is not None:
-                self._overscanCorr()
+                image = self._overscanCorr(image)
 
             # 2. Make a catalog of sources
             cat = self._findStars(image)
@@ -341,6 +342,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
     def _overscanCorr(self, frame):
 
+        self.log.debug('Applying overscan correction on %s' % frame.filename())
         overcorr = OverscanCorr()
 
         overcorr.read(frame.filename())
@@ -356,4 +358,5 @@ class AutoAlign(ChimeraObject,IAutofocus):
                                 'trim_'+fname)
         ccdout.write(trimname)
 
+        self.log.debug('Overscan corrected image: %s' % trimname)
         return Image.fromFile(trimname)
