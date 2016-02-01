@@ -207,7 +207,7 @@ class OverscanCorr():
 
         :return:
         '''
-        import ds9
+        import pyds9 as ds9
 
         d = ds9.ds9()
 

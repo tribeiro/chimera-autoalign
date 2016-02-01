@@ -75,7 +75,9 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'nzer': 8, # number of fitted Zernike terms
                   'mpi_threads': 8,
                   'mpi_use': True,
-                  'align_focus' : 0.,
+                  'align_focus' : None,          # What focus position should be used for alignment?
+                  'best_align_offset' : None,    # What is the optimum offset for alignment?
+                  'best_align_offset_tol' : None, # What is the tolerance in the optimum offset?
                   'sign_x' : +1.,
                   'sign_y' : +1.,
                   'sign_u' : +1.,
@@ -129,16 +131,17 @@ class AutoAlign(ChimeraObject,IAutofocus):
             self.log.debug("Using current filter.")
 
         # set focus
-        focuser = self.getFocuser()
-        currentFocus = focuser.getPosition()
-        currentOffset = focuser.getOffset()
-        offset = float(self["align_focus"]) - currentFocus + currentOffset
+        if self["align_focus"] is not None:
+            focuser = self.getFocuser()
+            currentFocus = focuser.getPosition()
+            currentOffset = focuser.getOffset()
+            offset = float(self["align_focus"]) - currentFocus + currentOffset
 
-        self.log.debug('Current focus: %f | AlignFocus: %f | Applyoffset: %f' % (currentFocus,
-                                                                                 self["align_focus"],
-                                                                                 offset) )
+            self.log.debug('Current focus: %f | AlignFocus: %f | Applyoffset: %f' % (currentFocus,
+                                                                                     self["align_focus"],
+                                                                                     offset) )
 
-        focuser.moveTo(offset/focuser['step_z'])
+            focuser.moveTo(offset/focuser['step_z'])
 
         # Sets up order and threshould
         alignOrder = OrderedDict([('comma',0.009*units.mm),
@@ -183,6 +186,24 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
             hexapod_offset = mkopt.align(image.filename())
             applied = False
+
+            # Check that current focus offset is within optimum conditions
+            if (self['best_align_offset'] is not None) and (self['best_align_offset_tol'] is not None):
+                focusSign = +1 if intra else -1
+                offsetdiff =  hexapod_offset.z.to(units.mm).value - focusSign * self['best_align_offset']
+                if np.abs(offsetdiff) > self['best_align_offset_tol']:
+                    self.log.warning('Focus offset (%f) too far from optimum position'
+                                   ' (%f +/- %f). Offseting by %f.' % (hexapod_offset.z.to(units.mm).value,
+                                                                      self['best_align_offset'],
+                                                                      self['best_align_offset_tol'],
+                                                                      offsetdiff))
+                    if offsetdiff > 0:
+                        focuser.moveOut(offsetdiff/focuser["step_z"],
+                                        FocuserAxis.Z)
+                    else:
+                        focuser.moveIn(np.abs(offsetdiff)/focuser["step_z"],
+                                       FocuserAxis.Z)
+                    continue
 
             for current_aberration_name in alignOrder:
 
@@ -323,8 +344,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
         focuser = self.getFocuser()
 
+        self.log.debug('Apply Hexapod Offset with axis %s' % (axis))
         if axis.upper() in ['X','Y','Z']:
             # move should be in steps
+            self.log.debug('Correcting %f mm in %s' % (offset.to(units.mm).value, axis.upper()))
             if offset.value > 0.:
                 focuser.moveOut(np.abs(offset.to(units.mm).value)/focuser["step_%s" % axis.lower()],
                                 FocuserAxis.fromStr(axis.upper()))
@@ -333,6 +356,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
                                FocuserAxis.fromStr(axis.upper()))
         elif axis.upper() in ['U','V']:
             # move should be in degrees
+            self.log.debug('Correcting %f deg in %s' % (offset.to(units.degree).value, axis.upper()))
             if offset.value > 0.:
                 focuser.moveOut(np.abs(offset.to(units.degree).value)/focuser["step_%s" % axis.lower()],
                                 FocuserAxis.fromStr(axis.upper()))

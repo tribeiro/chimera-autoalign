@@ -271,7 +271,7 @@ class MkOptics(SExtractor):
 
         zmap = ZernMap(cfp = self.getCFP(),
                        pix2mm = self.getPixScale(),
-                       center = [0,0]) # [hdr['NAXIS1']/2,hdr['NAXIS2']/2])
+                       center = [9216/2,9232/2] ) #[0,0]) # [hdr['NAXIS1']/2,hdr['NAXIS2']/2])
 
         rcat = np.load(outname).T
 
