@@ -144,8 +144,8 @@ class AutoAlign(ChimeraObject,IAutofocus):
             focuser.moveTo(offset/focuser['step_z'])
 
         # Sets up order and threshould
-        alignOrder = OrderedDict([('comma',0.009*units.mm),
-                                  ('astigmatism',10.*units.arcsec)])
+        alignOrder = OrderedDict([('comma',0.005*units.mm),
+                                  ('astigmatism',5.*units.arcsec)]) # FIXME: Move to configuration!
 
         done = False
         iter = 0
