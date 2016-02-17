@@ -33,7 +33,7 @@ from math import sqrt
 import time
 import os
 import logging
-
+import threading
 
 class StarDistributionException(ChimeraException):
     pass
@@ -88,6 +88,9 @@ class AutoAlign(ChimeraObject,IAutofocus):
     def __init__(self):
         ChimeraObject.__init__(self)
 
+        self._abort = threading.Event()
+        self._abort.clear()
+
         self.imageRequest = None
         self.filter = None
         self.currentRun = None
@@ -108,6 +111,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
     def align(self, filter=None, exptime=None, binning=None, window=None,
               intra=True, check_stellar_ditribution=True,minimum_star=100,niter=10):
 
+        self._abort.clear()
         self.currentRun = self._getID()
 
         # self.log.debug("="*40)
@@ -157,6 +161,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
         while not done:
             # 1. Take an image to work on
             self.log.debug('Taking image')
+
             image = self._takeImage()
 
             # 1.1 If there is an overscan configuration file, apply correction
@@ -185,6 +190,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
             mkopt.setMPIThreads(self["mpi_threads"])
 
             hexapod_offset = mkopt.align(image.filename())
+            if self._abort.isSet():
+                self.log.warning('Aborting autoalign sequence.')
+                break
+
             applied = False
 
             # Check that current focus offset is within optimum conditions
@@ -339,6 +348,9 @@ class AutoAlign(ChimeraObject,IAutofocus):
         catalogName = os.path.splitext(frame.filename())[0] + ".catalog"
         configName = os.path.splitext(frame.filename())[0] + ".config"
         return frame.extract(config, saveCatalog=catalogName, saveConfig=configName)
+
+    def abort(self):
+        self._abort.set()
 
     def _applyHexapodOffset(self,axis,offset):
 

@@ -35,6 +35,7 @@ import time
 import os
 import re
 from astropy import units as u
+import copy
 
 class ChimeraAutoAlign(ChimeraCLI):
 
@@ -196,7 +197,13 @@ class ChimeraAutoAlign(ChimeraCLI):
         except InvalidFilterPositionException, e:
             self.exit(str(e))
 
+    def __abort__(self):
+        self.out("\naborting... ", endl="")
 
+        # copy self.skyflat Proxy because we are running from a differente
+        # thread (yes, Pyro is tricky!)
+        autoalign = copy.copy(self.autoalign)
+        autoalign.abort()
 
 def main():
     cli = ChimeraAutoAlign()
