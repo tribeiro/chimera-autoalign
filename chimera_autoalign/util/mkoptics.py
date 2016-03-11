@@ -6,7 +6,8 @@ import re
 import json
 from tempfile import NamedTemporaryFile
 from astropy.io import fits
-from donut.zernmap import ZernMap
+#from donut.zernmap import ZernMap
+import donut.zernmap
 import numpy as np
 import os
 import shutil
@@ -14,6 +15,7 @@ import shutil
 import logging
 #import chimera.core.log
 log = logging.getLogger(__name__.replace('chimera_autoalign','chimera'))
+donut.zernmap.log = log
 
 class MkOpticsException(Exception):
     pass
@@ -269,10 +271,11 @@ class MkOptics(SExtractor):
 
         hdr = fits.getheader(ffile)
 
-        zmap = ZernMap(cfp = self.getCFP(),
+        zmap = donut.zernmap.ZernMap(cfp = self.getCFP(),
                        pix2mm = self.getPixScale(),
                        center = [9216/2,9232/2] ) #[0,0]) # [hdr['NAXIS1']/2,hdr['NAXIS2']/2])
 
+        # zmap.maxreject = 1000
         rcat = np.load(outname).T
 
         cat = np.array([])
@@ -296,8 +299,8 @@ class MkOptics(SExtractor):
         planeU = zmap.astigmatism(cat[0],cat[1],cat[id_astigx]*self.config['PIXEL_SCALE'],0)
         planeV = zmap.astigmatism(cat[0],cat[1],cat[id_astigy]*self.config['PIXEL_SCALE'],1)
         log.debug('cat[0]/cat[%i]: %s'%(id_commax,cat[id_commay].shape.__str__()))
-        comaX,mask = zmap.comma(cat[0],cat[id_commax]*self.config['PIXEL_SCALE'])
-        comaY,mask = zmap.comma(cat[1],cat[id_commay]*self.config['PIXEL_SCALE'])
+        comaX,mask = zmap.comma([cat[0],cat[1]],cat[id_commax]*self.config['PIXEL_SCALE'],0,xrange=10.,niter = 3)
+        comaY,mask = zmap.comma([cat[0],cat[1]],cat[id_commay]*self.config['PIXEL_SCALE'],1,xrange=10.,niter = 3)
         focus = zmap.map(cat[0],cat[1],cat[id_focus]*self.config['PIXEL_SCALE'])
         seeing = zmap.map(cat[0],cat[1],cat[id_seeing])
 
