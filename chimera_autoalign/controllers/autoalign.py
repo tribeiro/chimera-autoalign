@@ -114,6 +114,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
         self.imageRequest["exptime"] = exptime or 10
         self.imageRequest["frames"] = 1
         self.imageRequest["shutter"] = "OPEN"
+        self.imageRequest["type"] = 'autoalign'
         if binning is not None:
             self.imageRequest["binning"] = binning
         self.imageRequest["window"] = window
