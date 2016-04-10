@@ -273,7 +273,7 @@ class MkOptics(SExtractor):
 
         zmap = donut.zernmap.ZernMap(cfp = self.getCFP(),
                        pix2mm = self.getPixScale(),
-                       center = [9216/2,9232/2] ) #[0,0]) # [hdr['NAXIS1']/2,hdr['NAXIS2']/2])
+                       center = [2500, 6270]) #[9216/2,9232/2] ) #[0,0]) # [hdr['NAXIS1']/2,hdr['NAXIS2']/2])
 
         # zmap.maxreject = 1000
         rcat = np.load(outname).T
