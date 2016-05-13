@@ -119,6 +119,11 @@ class ChimeraAutoAlign(ChimeraCLI):
                                 helpGroup="AUTOALIGN",
                                 help="Maximum number of iterations. (default = 10)",
                                 default=10),
+                           dict(name="autoalign_object",
+                                long="object",
+                                helpGroup="AUTOALIGN",
+                                help="Object name used for alignment procedure, to include in fits headers.",
+                                default='autoalign field'),
                            )
 
     @action(helpGroup="AUTOALIGN",
@@ -180,7 +185,8 @@ class ChimeraAutoAlign(ChimeraCLI):
                                           intra=options.autoalign_intra,
                                           check_stellar_ditribution=options.autoalign_check_stellar_ditribution,
                                           minimum_star=options.autoalign_minimum_star,
-                                          niter=options.autoalign_niter)
+                                          niter=options.autoalign_niter,
+                                          object=options.autoalign_object)
 
             self.out("Best focus position found at %s." % result.z)
 

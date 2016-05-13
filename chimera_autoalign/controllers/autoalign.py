@@ -83,6 +83,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'sign_u' : +1.,
                   'sign_v' : +1.,
                   'overscan_config' : None,
+                  'comma_threshold' : 0.005,
+                  'astigmatism_threshold' : 5.,
+                  'debug_file' : None, # If given will write all logging info to a file as well
+                  'history_file' : None # If given will append final values of each iteration to a file
                   }
 
     def __init__(self):
@@ -94,6 +98,16 @@ class AutoAlign(ChimeraObject,IAutofocus):
         self.imageRequest = None
         self.filter = None
         self.currentRun = None
+
+    def __start__(self):
+        if self["history_file"] is not None and not os.path.exists(self["history_file"]):
+            with open(self["history_file"]) as fp:
+                # writing header
+                fp.write("NAME;FOCUSED;Position I_HEXAPOD_X;Position I_HEXAPOD_Y;Position I_HEXAPOD_Z;"
+                         "Position I_HEXAPOD_U;Position I_HEXAPOD_V;Position I_HEXAPOD_W;Position I_HA;Position I_DEC;"
+                         "Position I_DOME_SLIT;Position I_DOME_FLAP;Position I_DOME_AZ;Offset HEXAPOD_X;"
+                         "Offset HEXAPOD_Y;Offset HEXAPOD_Z;Offset HEXAPOD_U;Offset HEXAPOD_V;Offset HEXAPOD_W;"
+                         "Offset HA;Offset DEC;Offset DOME_AZ;Sensor TM1;Sensor TM2;Sensor TubeRod\n")
 
     def getCam(self):
         return self.getManager().getProxy(self["camera"])
@@ -109,7 +123,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
     @lock
     def align(self, filter=None, exptime=None, binning=None, window=None,
-              intra=True, check_stellar_ditribution=True,minimum_star=100,niter=10):
+              intra=True, check_stellar_ditribution=True,minimum_star=100,niter=10,object=None):
 
         self._abort.clear()
         self.currentRun = self._getID()
@@ -126,8 +140,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
         if binning is not None:
             self.imageRequest["binning"] = binning
         self.imageRequest["window"] = window
+        if object is not None:
+            self.imageRequest["object_name"] = object
 
-        if filter:
+        if filter is not None:
             self.filter = filter
             self.log.debug("Using filter %s." % self.filter)
         else:
@@ -148,8 +164,8 @@ class AutoAlign(ChimeraObject,IAutofocus):
             focuser.moveTo(offset/focuser['step_z'])
 
         # Sets up order and threshould
-        alignOrder = OrderedDict([('comma',0.005*units.mm),
-                                  ('astigmatism',5.*units.arcsec)]) # FIXME: Move to configuration!
+        alignOrder = OrderedDict([('comma',self["comma_threshold"]*units.mm),
+                                  ('astigmatism',self["astigmatism_threshold"]*units.arcsec)]) # FIXME: Move to configuration!
 
         done = False
         iter = 0
@@ -240,7 +256,51 @@ class AutoAlign(ChimeraObject,IAutofocus):
         # Apply focus and return
         self._applyHexapodOffset('Z',hexapod_offset.z)
 
+        # If history file present, append current telescope state
+        self.saveTelescopeState(object)
+
         return hexapod_offset
+
+    def saveTelescopeState(self,object_name):
+        '''
+        Save telescope state to a file in the same format as Astelos does.
+
+        :param filename:
+        :return:
+        '''
+        if self["history_file"] is not None:
+            with open(self["history_file"],'a') as fp:
+                telstate = {'name' : object_name,
+                            'focused' : 'true',
+                            'hpos_x' : 0.0,
+                            'hpos_y' : 0.0,
+                            'hpos_z' : 0.0,
+                            'hpos_u' : 0.0,
+                            'hpos_v' : 0.0,
+                            'hpos_w' : 0.0,
+                            'tpos_ha': 0.0,
+                            'tpos_dec': 0.0,
+                            'domeslit': 0.0,
+                            'domeflap': 0.0,
+                            'dome_az': 0.0,
+                            'hoffset_x' : 0.0,
+                            'hoffset_y' : 0.0,
+                            'hoffset_z' : 0.0,
+                            'hoffset_u' : 0.0,
+                            'hoffset_v' : 0.0,
+                            'hoffset_w' : 0.0,
+
+                            }
+
+                fp.write('{name},{focused};{hpos_x};{hpos_y};{hpos_z};{hpos_u};{hpos_v};{hpos_w};{tpos_ha};{tpos_dec};'
+                         '{domeslit};{domeflap};{dome_az};{hoffset_x};{hoffset_y};{hoffset_z};{hoffset_u};{hoffset_v};'
+                         '{hoffset_w};{toffset_ha};{toffset_dec};{doffset_az};{tm1};{tm2};'
+                         '{tuberod}\n'.format(**telstate))
+                # "NAME;FOCUSED;Position I_HEXAPOD_X;Position I_HEXAPOD_Y;Position I_HEXAPOD_Z;"
+                #  "Position I_HEXAPOD_U;Position I_HEXAPOD_V;Position I_HEXAPOD_W;Position I_HA;Position I_DEC;"
+                #  "Position I_DOME_SLIT;Position I_DOME_FLAP;Position I_DOME_AZ;Offset HEXAPOD_X;"
+                #  "Offset HEXAPOD_Y;Offset HEXAPOD_Z;Offset HEXAPOD_U;Offset HEXAPOD_V;Offset HEXAPOD_W;"
+                #  "Offset HA;Offset DEC;Offset DOME_AZ;Sensor TM1;Sensor TM2;Sensor TubeRod\n
 
     def checkDistribution(self,catalog):
         '''
