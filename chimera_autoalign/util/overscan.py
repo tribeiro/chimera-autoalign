@@ -48,7 +48,7 @@ class CCDSection(object):
                 reg_len = int(scan[1])
                 if scan[0] == 'serial_pre':
                     log.debug('Serial pre-scan with %i length.' % reg_len)
-                    return self.section[0], slice(self.section[1].start-reg_len,self.section[1].stop)
+                    return self.section[0], slice(self.section[1].start-reg_len,self.section[1].start)
                 elif scan[0] == 'serial_pos':
                     log.debug('Serial pos-scan with %i length.' % reg_len)
                     return self.section[0], slice(self.section[1].stop,self.section[1].stop+reg_len)
@@ -222,7 +222,34 @@ class OverscanCorr():
         :return: Nothing.
         '''
 
-        pass
+        overscan_img = np.zeros_like(self.ccd.data,dtype=np.float)
+
+        for subarr in self._ccdsections:
+            # log.debug(subarr.serial_scans)
+            scan_level = np.zeros(len(subarr.serial_scans)+len(subarr.parallel_scans))
+
+            for i,serial in enumerate(subarr.serial_scans):
+                scan_level[i] = np.mean(self.ccd.data[serial])
+                overscan_img[serial] += self.ccd.data[serial]
+
+            for i,parallel in enumerate(subarr.parallel_scans):
+                scan_level[len(subarr.serial_scans)+i] = np.mean(self.ccd.data[parallel])
+                overscan_img[parallel] += self.ccd.data[parallel]
+
+            # print scan_level
+            overscan_img[subarr.section] += np.mean(np.ma.masked_invalid(scan_level))
+
+        newdata = np.zeros_like(self.ccd.data,dtype=np.float) + self.ccd.data
+        newdata -= overscan_img
+        self.ccd.data = newdata
+
+        # import pyds9 as ds9
+        #
+        # d = ds9.ds9()
+        #
+        # # print self._ccdsections[0].parallel_scans[1]
+        #
+        # d.set_np2arr(overscan_img)
 
     def trim(self):
         '''
@@ -287,7 +314,7 @@ if __name__ == '__main__':
 
     overcorr.loadConfiguration(opt.config)
 
-    overcorr.show()
+    # overcorr.show()
 
     logging.info('Applying overscan...')
 
