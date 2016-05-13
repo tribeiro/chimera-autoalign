@@ -122,6 +122,16 @@ class AutoAlign(ChimeraObject,IAutofocus):
         return "autoalign-%s" % time.strftime("%Y%m%d-%H%M%S")
 
     @lock
+    def focus(self, filter=None, exptime=None, binning=None, window=None,
+           start=100, end=6000, step=500,
+           minmax=(0,30), debug=False):
+
+        self.log.debug('Calling AUTOALIGN...')
+
+        return self.align(filter = filter,exptime = exptime,binning = binning, window = window,
+                          niter=int(step),minimum_star=int(start),check_stellar_ditribution=False)
+
+    @lock
     def align(self, filter=None, exptime=None, binning=None, window=None,
               intra=True, check_stellar_ditribution=True,minimum_star=100,niter=10,object=None):
 
