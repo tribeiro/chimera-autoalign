@@ -1,0 +1,169 @@
+#! /usr/bin/env python
+# -*- coding: iso-8859-1 -*-
+
+# chimera - observatory automation system
+# Copyright (C) 2006-2007  P. Henrique Silva <henrique@astro.ufsc.br>
+
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+from chimera.core.cli import ChimeraCLI, action, parameter, ParameterType
+from chimera.core.callback import callback
+from chimera.util.output import blue, green, red, yellow
+#from chimera.core.exceptions import ChimeraException
+
+
+import sys
+import time
+import os
+import re
+
+class ChimeraM2Control(ChimeraCLI):
+
+    def __init__(self):
+        ChimeraCLI.__init__(
+            self, "chimera-m2control", "Focuser/Hexapod controller", 0.1, port=9004)
+
+        self.addHelpGroup("FOCUS", "Focus")
+        self.addInstrument(name="m2control",
+                           cls="M2Control",
+                           required=True,
+                           helpGroup="M2Control",
+                           help="M2Control controller to be used")
+
+        self.addParameters(dict(name="name",
+                                long="name",
+                                helpGroup="",
+                                default="",
+                                help="Name to use for the current state on lookup table.",
+                                metavar="FILENAME"))
+
+        self.addParameters(dict(name="filename",
+                                long="file",
+                                short="f",
+                                helpGroup="",
+                                default=None,
+                                help="Filename of the lookup table.",
+                                metavar="FILENAME"))
+
+    @action(helpGroup="ACTION",
+            help="Start M2 control law.")
+    def activate(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out("Activating M2 control law loop.")
+        self.m2control.activate()
+        self.out(green("OK"))
+
+    @action(helpGroup="ACTION",
+            help="Start M2 control law.")
+    def monitor(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        @callback(self.localManager)
+        def updateComplete(position):
+
+            ostr = ''
+            for p in position:
+                ostr += '%+6.3f '% p[0]
+            self.out(ostr)
+
+        self.m2control.updateComplete += updateComplete
+
+        self.wait(abort=False)
+
+    @action(helpGroup="ACTION",
+            help="Stop M2 control law.")
+    def deactivate(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out("Deactivating M2 control law loop.")
+        self.m2control.deactivate()
+        self.out(green("OK"))
+
+    @action(helpGroup="ACTION",
+            help="Add current telescope and focuser state to lookup table.")
+    def add(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out("Adding current state to lookup table.")
+        self.m2control.add(options.name)
+        self.out(green("OK"))
+
+    @action(helpGroup="ACTION",
+            help="Save lookup table to a fits file.")
+    def save(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        if options.filename is not None:
+            self.out("Saving lookup table to %s." % options.filename)
+            self.m2control.saveLookupTable(options.filename)
+            self.out(green("OK"))
+        else:
+            self.out('[%s] No file to save to. Give filenema with \'-f\'' % (red('FAIL')))
+
+    @action(name="ref_pos", long="set-reference-position",
+            helpGroup="ACTION",
+            help="Set reference position.")
+    def refpos(self, options):
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out('Setting reference position.')
+        self.m2control.setRefPos()
+
+    @action(name="ref_offset", long="set-reference-offset",
+            helpGroup="ACTION",
+            help="Set reference offset.")
+    def refoffset(self, options):
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out('Setting reference offset.')
+        self.m2control.setRefOffset()
+
+    # def __abort__(self):
+    #     self.out("\naborting... ", endl="")
+    #
+    #     # copy self.skyflat Proxy because we are running from a differente
+    #     # thread (yes, Pyro is tricky!)
+    #     autoalign = copy.copy(self.autoalign)
+    #     autoalign.abort()
+
+def main():
+    cli = ChimeraM2Control()
+    cli.run(sys.argv)
+    cli.wait()
+
+if __name__ == '__main__':
+
+    main()

@@ -140,19 +140,19 @@ class OverscanCorr():
                 ccdsec.serial_scans.append(('serial_pre', config.get('section_%i_%i' % ( serial+1, parallel+1),
                                                           'serialprescan')))
                 ccdsec.serial_scans_correct.append(bool(config.get('section_%i_%i' % ( serial+1, parallel+1),
-                                                                    'serialprescancorr')))
+                                                                    'serialprescancorr')=='True'))
                 ccdsec.serial_scans.append(('serial_pos', config.get('section_%i_%i' % ( serial+1, parallel+1),
                                                           'serialposscan')))
                 ccdsec.serial_scans_correct.append(bool(config.get('section_%i_%i' % ( serial+1, parallel+1),
-                                                                    'serialposscancorr')))
+                                                                    'serialposscancorr')=='True'))
                 ccdsec.parallel_scans.append(('parallel_pre', config.get('section_%i_%i' % ( serial+1, parallel+1),
                                                           'parallelprescan')))
                 ccdsec.parallel_scans_correct.append(bool(config.get('section_%i_%i' % ( serial+1, parallel+1),
-                                                                    'parallelprescancorr')))
+                                                                    'parallelprescancorr')=='True'))
                 ccdsec.parallel_scans.append(('parallel_pos', config.get('section_%i_%i' % ( serial+1, parallel+1),
                                                           'parallelposscan')))
                 ccdsec.parallel_scans_correct.append(bool(config.get('section_%i_%i' % ( serial+1, parallel+1),
-                                                                    'parallelposscancorr')))
+                                                                    'parallelposscancorr')=='True'))
                 # print ccdsec.section, ccdsec.parallel_size, ccdsec.serial_size
                 ccdsec.configOverScanRegions()
 
@@ -227,29 +227,47 @@ class OverscanCorr():
         for subarr in self._ccdsections:
             # log.debug(subarr.serial_scans)
             scan_level = np.zeros(len(subarr.serial_scans)+len(subarr.parallel_scans))
+            scan_mask  = np.zeros(len(subarr.serial_scans)+len(subarr.parallel_scans)) == 0
 
             for i,serial in enumerate(subarr.serial_scans):
-                scan_level[i] = np.mean(self.ccd.data[serial])
-                overscan_img[serial] += self.ccd.data[serial]
+                log.debug("Apply serial %i correction: %s" % (i, subarr.serial_scans_correct[i]))
+                mean = np.mean(self.ccd.data[serial])
+                std = np.std(self.ccd.data[serial])
+                mask = np.bitwise_and(self.ccd.data[serial] > mean-2*std,
+                                      self.ccd.data[serial] < mean+2*std)
+                # mask = np.zeros_like(self.ccd.data[serial]) == 0
+                scan_level[i] = np.median(self.ccd.data[serial][mask])
+                scan_mask[i] = subarr.serial_scans_correct[i]
+                if subarr.serial_scans_correct[i]:
+                    overscan_img[serial] += self.ccd.data[serial]
 
             for i,parallel in enumerate(subarr.parallel_scans):
-                scan_level[len(subarr.serial_scans)+i] = np.mean(self.ccd.data[parallel])
-                overscan_img[parallel] += self.ccd.data[parallel]
+                log.debug("Apply parallel %i correction: %s" % (i, subarr.parallel_scans_correct[i]))
+                mean = np.mean(self.ccd.data[parallel])
+                std = np.std(self.ccd.data[parallel])
+                mask = np.bitwise_and(self.ccd.data[parallel] > mean-2*std,
+                                      self.ccd.data[parallel] < mean+2*std)
+                # mask = np.zeros_like(self.ccd.data[parallel]) == 0
+                scan_level[len(subarr.serial_scans)+i] = np.median(self.ccd.data[parallel][mask])
+                scan_mask[len(subarr.serial_scans)+i] = subarr.parallel_scans_correct[i]
+
+                if subarr.parallel_scans_correct[i]:
+                    overscan_img[parallel] += self.ccd.data[parallel]
 
             # print scan_level
-            overscan_img[subarr.section] += np.mean(np.ma.masked_invalid(scan_level))
+            overscan_img[subarr.section] += np.mean(np.ma.masked_invalid(scan_level[scan_mask]))
 
         newdata = np.zeros_like(self.ccd.data,dtype=np.float) + self.ccd.data
         newdata -= overscan_img
         self.ccd.data = newdata
 
-        # import pyds9 as ds9
-        #
-        # d = ds9.ds9()
-        #
-        # # print self._ccdsections[0].parallel_scans[1]
-        #
-        # d.set_np2arr(overscan_img)
+        import pyds9 as ds9
+
+        d = ds9.ds9()
+
+        # print self._ccdsections[0].parallel_scans[1]
+        # d.set_np2arr(newdata)
+        d.set_np2arr(overscan_img)
 
     def trim(self):
         '''
