@@ -243,6 +243,20 @@ class M2Control(ChimeraObject):
         self.refOffset.u = self.refPos.v-focuser.getPosition(FocuserAxis.U)*units.degree
         self.refOffset.v = self.refPos.w-focuser.getPosition(FocuserAxis.V)*units.degree
 
+    def goRefPos(self):
+
+        focuser = self.getFocuser()
+        if focuser is None:
+            self.log.warning("Couldn't find focuser.")
+            return False
+
+        focuser.moveTo(self.refPos.x.to(units.mm).value,FocuserAxis.X)
+        focuser.moveTo(self.refPos.y.to(units.mm).value,FocuserAxis.Y)
+        focuser.moveTo(self.refPos.z.to(units.mm).value,FocuserAxis.Z)
+        focuser.moveTo(self.refPos.u.to(units.degree).value,FocuserAxis.U)
+        focuser.moveTo(self.refPos.v.to(units.degree).value,FocuserAxis.V)
+
+
     def add(self,name=''):
 
         tel = self.getTel()
