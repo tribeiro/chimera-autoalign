@@ -171,7 +171,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
                                                                                      self["align_focus"],
                                                                                      offset) )
 
-            focuser.moveTo(offset/focuser['step_z'])
+            focuser.moveTo(float(self["align_focus"])/focuser["step_z"])
 
         # Sets up order and threshould
         alignOrder = OrderedDict([('comma',self["comma_threshold"]*units.mm),
