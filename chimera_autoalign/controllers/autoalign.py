@@ -86,7 +86,8 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'comma_threshold' : 0.005,
                   'astigmatism_threshold' : 5.,
                   'debug_file' : None, # If given will write all logging info to a file as well
-                  'history_file' : None # If given will append final values of each iteration to a file
+                  'history_file' : None, # If given will append final values of each iteration to a file
+                  'm2control' : None, # M2controlLaw controller
                   }
 
     def __init__(self):
@@ -117,6 +118,9 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
     def getFocuser(self):
         return self.getManager().getProxy(self["focuser"])
+
+    def getM2CL(self):
+        return self.getManager().getProxy(self["m2control"])
 
     def _getID(self):
         return "autoalign-%s" % time.strftime("%Y%m%d-%H%M%S")
@@ -159,6 +163,19 @@ class AutoAlign(ChimeraObject,IAutofocus):
         else:
             self.filter = False
             self.log.debug("Using current filter.")
+
+        # Setup m2control law controller
+
+        m2cl = None
+
+        if self['m2control'] is not None:
+            self.getM2CL()
+
+            m2cl.savePosition()
+            m2cl.deactivate()
+            af = m2cl.getAlignFocus()
+            if af is not None:
+                self["align_focus"] = af
 
         # set focus
         if self["align_focus"] is not None:
@@ -232,6 +249,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
                                                                       self['best_align_offset'],
                                                                       self['best_align_offset_tol'],
                                                                       offsetdiff))
+                    m2cl.setAlignFocus(self['align_focus']+offset)
                     if offsetdiff > 0:
                         focuser.moveOut(offsetdiff/focuser["step_z"],
                                         FocuserAxis.Z)
@@ -268,6 +286,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
         # If history file present, append current telescope state
         self.saveTelescopeState(object)
+
+        m2cl.setupOffset()
+
+        # Will leave m2cl deactivated. Should I activate it back in case it was activated?In
 
         return hexapod_offset
 

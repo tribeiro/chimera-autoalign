@@ -69,6 +69,8 @@ class M2Control(ChimeraObject):
         self.lookuptable = None
         self.refPos = HexapodAxes()
         self.refOffset = HexapodAxes()
+
+        self.align_focus = None
         
     def __start__(self):
 
@@ -263,6 +265,35 @@ class M2Control(ChimeraObject):
         focuser.moveTo(self.refPos.u.to(units.degree).value/focuser['step_u'],FocuserAxis.U)
         focuser.moveTo(self.refPos.v.to(units.degree).value/focuser['step_v'],FocuserAxis.V)
 
+    def savePosition(self):
+        focuser = self.getFocuser()
+        if focuser is None:
+            self.log.warning("Couldn't find focuser.")
+            return False
+
+        self.currentPos.x = focuser.getPosition(FocuserAxis.X)*units.mm
+        self.currentPos.y = focuser.getPosition(FocuserAxis.Y)*units.mm
+        self.currentPos.z = focuser.getPosition(FocuserAxis.Z)*units.mm
+        self.currentPos.u = focuser.getPosition(FocuserAxis.U)*units.degree
+        self.currentPos.v = focuser.getPosition(FocuserAxis.V)*units.degree
+
+    def setupOffset(self):
+        '''
+        Will setup the current offset based on the saved current position and the actuall current position of the
+        hexapod
+        :return:
+        '''
+
+        focuser = self.getFocuser()
+        if focuser is None:
+            self.log.warning("Couldn't find focuser.")
+            return False
+
+        self.refOffset.x = self.currentPos.x-focuser.getPosition(FocuserAxis.X)*units.mm
+        self.refOffset.y = self.currentPos.y-focuser.getPosition(FocuserAxis.Y)*units.mm
+        self.refOffset.z = self.currentPos.z-focuser.getPosition(FocuserAxis.Z)*units.mm
+        self.refOffset.u = self.currentPos.v-focuser.getPosition(FocuserAxis.U)*units.degree
+        self.refOffset.v = self.currentPos.w-focuser.getPosition(FocuserAxis.V)*units.degree
 
     def add(self,name=''):
 
@@ -304,6 +335,12 @@ class M2Control(ChimeraObject):
                           ], dtype=lookuptable_dtype)
 
         self.lookuptable = np.append(self.lookuptable,entry)
+
+    def getAlignFocus(self):
+        return self.align_focus
+
+    def setAlignFocus(self,value):
+        self.align_focus = value
 
     def _connectTelescopeEvents(self):
         # Todo
