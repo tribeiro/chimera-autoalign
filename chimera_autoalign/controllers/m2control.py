@@ -5,6 +5,7 @@ from chimera.core.lock import lock
 from chimera.core.event import event
 from chimera.core.exceptions import ChimeraException, ClassLoaderException
 from chimera.interfaces.focuser import InvalidFocusPositionException, FocuserAxis
+from chimera.util.coord import Coord
 from chimera.util.position import Position
 
 from chimera_autoalign.util.mkoptics import HexapodAxes
@@ -140,6 +141,9 @@ class M2Control(ChimeraObject):
 
         newhdu.writeto(tablename)
 
+    def getLookupTable(self):
+        return self.lookuptable
+
     @lock
     def activate(self):
 
@@ -166,8 +170,8 @@ class M2Control(ChimeraObject):
 
         dist = np.array([
                             pos.angsep(Position.fromAltAz(
-                                self.lookuptable['ALT'][i],
-                                self.lookuptable['AZ'][i])).D for i in range(len(self.lookuptable))
+                                Coord.fromD(self.lookuptable['ALT'][i]),
+                                Coord.fromD(self.lookuptable['AZ'][i]))).D for i in range(len(self.lookuptable))
                          ]
                         )
 
@@ -184,16 +188,16 @@ class M2Control(ChimeraObject):
              FocuserAxis.Y, 1e-3),
             (self.lookuptable['Z'][index] - self.lookuptable['RZ'][index] - self.refOffset.z.to(units.mm).value,
              FocuserAxis.Z, 1e-3),
-            (self.lookuptable['U'][index] - self.lookuptable['RU'][index] - self.refOffset.u.to(units.mm).value,
+            (self.lookuptable['U'][index] - self.lookuptable['RU'][index] - self.refOffset.u.to(units.degree).value,
              FocuserAxis.U, 1e-3),
-            (self.lookuptable['V'][index] - self.lookuptable['RV'][index] - self.refOffset.v.to(units.mm).value,
+            (self.lookuptable['V'][index] - self.lookuptable['RV'][index] - self.refOffset.v.to(units.degree).value,
              FocuserAxis.V, 1e-3), ]
 
         for offset in offset_list:
             if offset[0] > offset[2]:
-                focuser.moveOut(abs(offset),axis=offset[1])
+                focuser.moveOut(abs(offset[0]),axis=offset[1])
             elif -offset[0] > offset[2]:
-                focuser.moveIn(abs(offset),axis=offset[1])
+                focuser.moveIn(abs(offset[0]),axis=offset[1])
 
         self.updateComplete(offset_list)
 
@@ -226,6 +230,9 @@ class M2Control(ChimeraObject):
         self.refPos.u = focuser.getPosition(FocuserAxis.U)*units.degree
         self.refPos.v = focuser.getPosition(FocuserAxis.V)*units.degree
 
+    def getRefPos(self):
+        return self.refPos
+
     def setRefOffset(self):
         '''
         Sets reference offset to current focuser position.
@@ -250,11 +257,11 @@ class M2Control(ChimeraObject):
             self.log.warning("Couldn't find focuser.")
             return False
 
-        focuser.moveTo(self.refPos.x.to(units.mm).value,FocuserAxis.X)
-        focuser.moveTo(self.refPos.y.to(units.mm).value,FocuserAxis.Y)
-        focuser.moveTo(self.refPos.z.to(units.mm).value,FocuserAxis.Z)
-        focuser.moveTo(self.refPos.u.to(units.degree).value,FocuserAxis.U)
-        focuser.moveTo(self.refPos.v.to(units.degree).value,FocuserAxis.V)
+        focuser.moveTo(self.refPos.x.to(units.mm).value/focuser['step_x'],FocuserAxis.X)
+        focuser.moveTo(self.refPos.y.to(units.mm).value/focuser['step_y'],FocuserAxis.Y)
+        focuser.moveTo(self.refPos.z.to(units.mm).value/focuser['step_z'],FocuserAxis.Z)
+        focuser.moveTo(self.refPos.u.to(units.degree).value/focuser['step_u'],FocuserAxis.U)
+        focuser.moveTo(self.refPos.v.to(units.degree).value/focuser['step_v'],FocuserAxis.V)
 
 
     def add(self,name=''):

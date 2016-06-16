@@ -67,20 +67,20 @@ class ChimeraM2Control(ChimeraCLI):
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
 
         self.out("Reference position:")
-        position = self.m2control.refPos
+        position = self.m2control.getRefPos()
 
-        self.out('# X: %s'
-                 '# Y: %s'
-                 '# Z: %s (focus)'
-                 '# U: %s'
-                 '# V: %s'%( position.x,
+        self.out('# X: %s\n'
+                 '# Y: %s\n'
+                 '# Z: %s (focus)\n'
+                 '# U: %s\n'
+                 '# V: %s\n'%( position.x,
                                     position.y,
                                     position.z,
-                                    position.u.to_string(unit=u.degree, sep=(':', ':', ' ')),
-                                    position.v.to_string(unit=u.degree, sep=(':', ':', ' ')) ) )
+                                    position.u,
+                                    position.v ) )
 
         self.out("Lookup Table (%s):" % (self.m2control["table"]))
-        self.out("Number of points: %i" % len(self.m2control.lookuptable))
+        self.out("Number of points: %i" % len(self.m2control.getLookupTable()))
 
     @action(helpGroup="ACTION",
             help="Plot lookuptable data points.")
@@ -95,12 +95,25 @@ class ChimeraM2Control(ChimeraCLI):
         plt.clf()
         ax = plt.subplot(111, projection='polar')
         ax.set_theta_zero_location("N")
-        ax.scatter(self.m2control.lookuptable["ALT"] * np.pi / 180., 90 - self.m2control.lookuptable["AZ"][:, 1],
+        lookuptable = self.m2control.getLookupTable()
+        ax.scatter(lookuptable["AZ"] * np.pi / 180., 90 - lookuptable["ALT"],
                    color='r', alpha=1, s=20)
         ax.grid(True)
         # ax.set_ylim(90 - altitude_min + 10, 0)
         # ax.set_yticklabels(90 - np.array(ax.get_yticks(), dtype=int))
         plt.show()
+
+    @action(helpGroup="ACTION",
+            help="Update position of the hexapod based on the lookuptable.")
+    def update(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out("Updating M2 position.")
+        self.m2control.update()
+        self.out(green("OK"))
 
     @action(helpGroup="ACTION",
             help="Start M2 control law.")
