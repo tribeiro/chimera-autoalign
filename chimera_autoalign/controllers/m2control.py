@@ -113,11 +113,11 @@ class M2Control(ChimeraObject):
         self.refPos.u = hdulist[hduindex].header['REFU'] * units.degree
         self.refPos.v = hdulist[hduindex].header['REFV'] * units.degree
 
-        self.redOffset.x = hdulist[hduindex].header['OREFX'] * units.mm
-        self.redOffset.y = hdulist[hduindex].header['OREFY'] * units.mm
-        self.redOffset.z = hdulist[hduindex].header['OREFZ'] * units.mm
-        self.redOffset.u = hdulist[hduindex].header['OREFU'] * units.degree
-        self.redOffset.v = hdulist[hduindex].header['OREFV'] * units.degree
+        self.refOffset.x = hdulist[hduindex].header['OREFX'] * units.mm
+        self.refOffset.y = hdulist[hduindex].header['OREFY'] * units.mm
+        self.refOffset.z = hdulist[hduindex].header['OREFZ'] * units.mm
+        self.refOffset.u = hdulist[hduindex].header['OREFU'] * units.degree
+        self.refOffset.v = hdulist[hduindex].header['OREFV'] * units.degree
 
         self.lookuptable = hdulist[hduindex].data
 
