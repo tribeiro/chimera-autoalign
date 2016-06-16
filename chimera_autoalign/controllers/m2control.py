@@ -293,7 +293,7 @@ class M2Control(ChimeraObject):
                            self.refPos.z.to(units.mm).value,
                            self.refPos.u.to(units.degree).value,
                            self.refPos.v.to(units.degree).value,
-                           0, 0, 0, 0, 0),
+                           0, 0, 0, 0, 0, 0),
                           ], dtype=lookuptable_dtype)
 
         self.lookuptable = np.append(self.lookuptable,entry)
