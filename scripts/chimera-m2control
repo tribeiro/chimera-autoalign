@@ -23,7 +23,7 @@ from chimera.core.cli import ChimeraCLI, action, parameter, ParameterType
 from chimera.core.callback import callback
 from chimera.util.output import blue, green, red, yellow
 #from chimera.core.exceptions import ChimeraException
-
+from astropy import units as u
 
 import sys
 import time
@@ -57,6 +57,50 @@ class ChimeraM2Control(ChimeraCLI):
                                 default=None,
                                 help="Filename of the lookup table.",
                                 metavar="FILENAME"))
+
+    @action(helpGroup="ACTION",
+            help="Display information about m2 control law.")
+    def info(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out("Reference position:")
+        position = self.m2control.refPos
+
+        self.out('# X: %s'
+                 '# Y: %s'
+                 '# Z: %s (focus)'
+                 '# U: %s'
+                 '# V: %s'%( position.x,
+                                    position.y,
+                                    position.z,
+                                    position.u.to_string(unit=u.degree, sep=(':', ':', ' ')),
+                                    position.v.to_string(unit=u.degree, sep=(':', ':', ' ')) ) )
+
+        self.out("Lookup Table (%s):" % (self.m2control["table"]))
+        self.out("Number of points: %i" % len(self.m2control.lookuptable))
+
+    @action(helpGroup="ACTION",
+            help="Plot lookuptable data points.")
+    def show_table(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        plt.clf()
+        ax = plt.subplot(111, projection='polar')
+        ax.set_theta_zero_location("N")
+        ax.scatter(self.m2control.lookuptable["ALT"] * np.pi / 180., 90 - self.m2control.lookuptable["AZ"][:, 1],
+                   color='r', alpha=1, s=20)
+        ax.grid(True)
+        # ax.set_ylim(90 - altitude_min + 10, 0)
+        # ax.set_yticklabels(90 - np.array(ax.get_yticks(), dtype=int))
+        plt.show()
 
     @action(helpGroup="ACTION",
             help="Start M2 control law.")
