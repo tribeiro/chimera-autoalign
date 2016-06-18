@@ -249,7 +249,8 @@ class AutoAlign(ChimeraObject,IAutofocus):
                                                                       self['best_align_offset'],
                                                                       self['best_align_offset_tol'],
                                                                       offsetdiff))
-                    m2cl.setAlignFocus(self['align_focus']+offset)
+                    if m2cl is not None:
+                        m2cl.setAlignFocus(self['align_focus']+offset)
                     if offsetdiff > 0:
                         focuser.moveOut(offsetdiff/focuser["step_z"],
                                         FocuserAxis.Z)
