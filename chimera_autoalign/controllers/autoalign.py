@@ -288,7 +288,8 @@ class AutoAlign(ChimeraObject,IAutofocus):
         # If history file present, append current telescope state
         self.saveTelescopeState(object)
 
-        m2cl.setupOffset()
+        if m2cl is not None:
+            m2cl.setupOffset()
 
         # Will leave m2cl deactivated. Should I activate it back in case it was activated?In
 
