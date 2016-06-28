@@ -15,8 +15,9 @@ from chimera.interfaces.pointverify import PointVerify as IPointVerify
 from chimera.util.image import ImageUtil, Image
 from chimera.util.position import Position
 from chimera.util.coord import Coord
-from chimera.util.astrometrynet import AstrometryNet, NoSolutionAstrometryNetException
+# from chimera.util.astrometrynet import AstrometryNet, NoSolutionAstrometryNetException
 from chimera_autoalign.util.overscan import OverscanCorr
+from chimera_autoalign.util.astrometrynet import AstrometryNet, NoSolutionAstrometryNetException
 
 class AutoPVerify(ChimeraObject, IPointVerify):
     """
@@ -120,7 +121,9 @@ class AutoPVerify(ChimeraObject, IPointVerify):
             self.log.debug("Taking image: image name %s" % image_path)
             # 1.1 If there is an overscan configuration file, apply correction
             if self['overscan_config'] is not None:
+                self.log.debug("Applying Overscan correction...")
                 image = self._overscanCorr(image)
+                image_path = image.filename()
 
         except:
             self.log.error("Can't take image")

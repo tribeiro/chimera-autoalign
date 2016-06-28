@@ -22,6 +22,7 @@
 from chimera.core.cli import ChimeraCLI, action, parameter, ParameterType
 from chimera.core.callback import callback
 from chimera.util.output import blue, green, red, yellow
+from chimera_autoalign.controllers.m2control import State
 #from chimera.core.exceptions import ChimeraException
 from astropy import units as u
 
@@ -42,6 +43,12 @@ class ChimeraM2Control(ChimeraCLI):
                            required=True,
                            helpGroup="M2Control",
                            help="M2Control controller to be used")
+
+        self.addInstrument(name="tel",
+                           cls="telescope",
+                           required=True,
+                           helpGroup="M2Control",
+                           help="Telescope controller to be used")
 
         self.addParameters(dict(name="name",
                                 long="name",
@@ -66,21 +73,52 @@ class ChimeraM2Control(ChimeraCLI):
             self.exit(
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
 
-        self.out("Reference position:")
-        position = self.m2control.getRefPos()
+        state = self.m2control.getState()
+        if state == State.ACTIVE:
+            color = green
+        else:
+            color = red
 
-        self.out('# X: %s\n'
-                 '# Y: %s\n'
-                 '# Z: %s (focus)\n'
-                 '# U: %s\n'
-                 '# V: %s\n'%( position.x,
-                                    position.y,
-                                    position.z,
-                                    position.u,
-                                    position.v ) )
+        self.out('Current state: %s ' % color(state.__str__()))
+
+        self.out("Reference position/offset:")
+        position = self.m2control.getRefPos() #getCurrentSavedPos()
+        offset = self.m2control.getRefOffset()
+
+        self.out('# X: %12s / %12s\n'
+                 '# Y: %12s / %12s\n'
+                 '# Z: %12s / %12s (focus)\n'
+                 '# U: %12s / %12s\n'
+                 '# V: %12s / %12s\n' % (position.x, offset.x,
+                                         position.y, offset.y,
+                                         position.z, offset.z,
+                                         position.u, offset.u,
+                                         position.v, offset.v))
+
+        # self.out("Reference offset:")
 
         self.out("Lookup Table (%s):" % (self.m2control["table"]))
         self.out("Number of points: %i" % len(self.m2control.getLookupTable()))
+
+    @action(helpGroup="ACTION",
+            help="load lookuptable.")
+    def load(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        if not options.filename:
+            self.exit("No table. Use \'-f\' option.")
+
+        self.out("Loading lookuptable from %s " % options.filename, end="")
+        try:
+            self.m2control.loadLookupTable(options.filename)
+        except Exception,e:
+            self.exit(red("FAILED"))
+        else:
+            self.exit(green("OK"))
+
 
     @action(helpGroup="ACTION",
             help="Plot lookuptable data points.")
@@ -96,11 +134,11 @@ class ChimeraM2Control(ChimeraCLI):
         ax = plt.subplot(111, projection='polar')
         ax.set_theta_zero_location("N")
         lookuptable = self.m2control.getLookupTable()
-        ax.scatter(lookuptable["AZ"] * np.pi / 180., 90 - lookuptable["ALT"],
+        ax.scatter(lookuptable["AZ"] * np.pi / 180., 90 - lookuptable["ALT"], marker = '.',
                    color='r', alpha=1, s=20)
         ax.grid(True)
         # ax.set_ylim(90 - altitude_min + 10, 0)
-        # ax.set_yticklabels(90 - np.array(ax.get_yticks(), dtype=int))
+        ax.set_yticklabels(90 - np.array(ax.get_yticks(), dtype=int))
         plt.show()
 
     @action(helpGroup="ACTION",
@@ -111,8 +149,16 @@ class ChimeraM2Control(ChimeraCLI):
             self.exit(
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
 
-        self.out("Updating M2 position.")
-        self.m2control.update()
+        state = self.m2control.getState()
+        if state == State.ACTIVE:
+            self.exit("Controller state is %s. Stop it before manually updating." % green(state.__str__()))
+
+        self.out("Updating M2 position.", end="")
+        try:
+            self.m2control.update()
+        except:
+            self.exit(red("FAILED"))
+
         self.out(green("OK"))
 
     @action(helpGroup="ACTION",
@@ -123,7 +169,7 @@ class ChimeraM2Control(ChimeraCLI):
             self.exit(
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
 
-        self.out("Activating M2 control law loop.")
+        self.out("Activating M2 control law loop.", end="")
         self.m2control.activate()
         self.out(green("OK"))
 
@@ -155,7 +201,7 @@ class ChimeraM2Control(ChimeraCLI):
             self.exit(
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
 
-        self.out("Deactivating M2 control law loop.")
+        self.out("Deactivating M2 control law loop.", end="")
         self.m2control.deactivate()
         self.out(green("OK"))
 
@@ -169,6 +215,23 @@ class ChimeraM2Control(ChimeraCLI):
 
         self.out("Adding current state to lookup table.")
         self.m2control.add(options.name)
+        self.out(green("OK"))
+
+    @action(helpGroup="ACTION",
+            help="Add current telescope and focuser state to lookup table.")
+    def calibrate(self, options):
+
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        state = self.m2control.getState()
+        if state == State.ACTIVE:
+            self.exit("[%s] Controller state is %s. Stop it before calibrating." % (red("ERROR"),
+                                                                                    green(state.__str__())))
+
+        self.out("Calibrating lookuptable")
+        self.m2control.calibrate()
         self.out(green("OK"))
 
     @action(helpGroup="ACTION",
@@ -186,10 +249,21 @@ class ChimeraM2Control(ChimeraCLI):
         else:
             self.out('[%s] No file to save to. Give filenema with \'-f\'' % (red('FAIL')))
 
-    @action(name="ref_pos", long="set-reference-position",
+    @action(name="set_curr_pos", long="set-current-position",
             helpGroup="ACTION",
             help="Set reference position.")
-    def refpos(self, options):
+    def setcurrpos(self, options):
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out('Setting reference position.')
+        self.m2control.savePosition()
+
+    @action(name="set_ref_pos", long="set-reference-position",
+            helpGroup="ACTION",
+            help="Set reference position.")
+    def setrefpos(self, options):
         if not self.m2control:
             self.exit(
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
@@ -197,10 +271,10 @@ class ChimeraM2Control(ChimeraCLI):
         self.out('Setting reference position.')
         self.m2control.setRefPos()
 
-    @action(name="ref_offset", long="set-reference-offset",
+    @action(name="set_ref_offset", long="set-reference-offset",
             helpGroup="ACTION",
             help="Set reference offset.")
-    def refoffset(self, options):
+    def setrefoffset(self, options):
         if not self.m2control:
             self.exit(
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
@@ -208,10 +282,32 @@ class ChimeraM2Control(ChimeraCLI):
         self.out('Setting reference offset.')
         self.m2control.setRefOffset()
 
-    @action(name="got-to-reference", long="got-to-reference-position",
+    @action(name="set_offset", long="set-offset",
+            helpGroup="ACTION",
+            help="Set offset with respect to current position.")
+    def setoffset(self, options):
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out('Setting reference offset.')
+        self.m2control.setupOffset()
+
+    @action(name="reset", long="reset",
+            helpGroup="ACTION",
+            help="Reset current position and offset to zero.")
+    def setrefoffset(self, options):
+        if not self.m2control:
+            self.exit(
+                "No Autoalign controller available. Try --autofocus=..., or --help.")
+
+        self.out('Resetting.')
+        self.m2control.reset()
+
+    @action(name="go-to-reference", long="go-to-reference-position",
             helpGroup="ACTION",
             help="Go to reference position. Usefull when looses reference.")
-    def refoffset(self, options):
+    def gorefoffset(self, options):
         if not self.m2control:
             self.exit(
                 "No Autoalign controller available. Try --autofocus=..., or --help.")
@@ -220,7 +316,7 @@ class ChimeraM2Control(ChimeraCLI):
         self.m2control.goRefPos()
 
     # def __abort__(self):
-    #     self.out("\naborting... ", endl="")
+    #     self.out("\naborting... ", end="")
     #
     #     # copy self.skyflat Proxy because we are running from a differente
     #     # thread (yes, Pyro is tricky!)

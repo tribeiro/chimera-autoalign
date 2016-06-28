@@ -169,13 +169,12 @@ class AutoAlign(ChimeraObject,IAutofocus):
         m2cl = None
 
         if self['m2control'] is not None:
-            self.getM2CL()
+            m2cl = self.getM2CL()
 
-            m2cl.savePosition()
             m2cl.deactivate()
-            af = m2cl.getAlignFocus()
-            if af is not None:
-                self["align_focus"] = af
+            # af = m2cl.getAlignFocus()
+            # if af is not None:
+            #     self["align_focus"] = af
 
         # set focus
         if self["align_focus"] is not None:
@@ -192,7 +191,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
 
         # Sets up order and threshould
         alignOrder = OrderedDict([('comma',self["comma_threshold"]*units.mm),
-                                  ('astigmatism',self["astigmatism_threshold"]*units.arcsec)]) # FIXME: Move to configuration!
+                                  ('astigmatism',self["astigmatism_threshold"]*units.arcsec)])
 
         done = False
         iter = 0
@@ -249,8 +248,6 @@ class AutoAlign(ChimeraObject,IAutofocus):
                                                                       self['best_align_offset'],
                                                                       self['best_align_offset_tol'],
                                                                       offsetdiff))
-                    if m2cl is not None:
-                        m2cl.setAlignFocus(self['align_focus']+offset)
                     if offsetdiff > 0:
                         focuser.moveOut(offsetdiff/focuser["step_z"],
                                         FocuserAxis.Z)
@@ -289,7 +286,9 @@ class AutoAlign(ChimeraObject,IAutofocus):
         self.saveTelescopeState(object)
 
         if m2cl is not None:
-            m2cl.setupOffset()
+            m2cl.setAlignFocus(hexapod_offset.z.to(units.mm).value)
+            m2cl.reset()
+            m2cl.calibrate()
 
         # Will leave m2cl deactivated. Should I activate it back in case it was activated?In
 
@@ -377,7 +376,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
             filter = self.getFilter()
             filter.setFilter(self.filter)
 
-        self.imageRequest["filename"] = os.path.basename(ImageUtil.makeFilename("align-$DATE"))
+        self.imageRequest["filename"] = os.path.basename(ImageUtil.makeFilename("align-$DATE-$TIME"))
 
         frames = cam.expose(self.imageRequest)
 

@@ -7,6 +7,7 @@ from chimera.core.exceptions import ChimeraException, ClassLoaderException
 from chimera.interfaces.focuser import InvalidFocusPositionException, FocuserAxis
 from chimera.util.coord import Coord
 from chimera.util.position import Position
+from chimera.util.enum import Enum
 
 from chimera_autoalign.util.mkoptics import HexapodAxes
 
@@ -15,6 +16,8 @@ from astropy import units
 from astropy.coordinates import Angle
 import numpy as np
 import threading
+
+State = Enum("ACTIVE", "STOP", "ERROR", "RANGE")
 
 interpolationType = ['nearest', 'linear']
 
@@ -69,9 +72,10 @@ class M2Control(ChimeraObject):
         self.lookuptable = None
         self.refPos = HexapodAxes()
         self.refOffset = HexapodAxes()
-
+        self.currentPos = HexapodAxes()
         self.align_focus = None
-        
+        self.state = State.STOP
+
     def __start__(self):
 
         if self["table"] is not None:
@@ -89,8 +93,13 @@ class M2Control(ChimeraObject):
 
                 try:
                     self.loopControl.wait(timeout=self.loop_timeout)
-                    self.update()
+                    if self.state == State.ACTIVE:
+                        self.update()
+                    else:
+                        self.log.warning("Current state is %s, loop will pause." % self.state)
+                        self.loop_timeout = None
                 except Exception, e:
+                    self.state = State.ERROR
                     self.log.exception(e)
 
             self.loopControl.release()
@@ -122,9 +131,12 @@ class M2Control(ChimeraObject):
         self.refOffset.u = hdulist[hduindex].header['OREFU'] * units.degree
         self.refOffset.v = hdulist[hduindex].header['OREFV'] * units.degree
 
+        if 'ALFOC' in hdulist[hduindex].header.keys():
+            self.align_focus = hdulist[hduindex].header['ALFOC']
+
         self.lookuptable = hdulist[hduindex].data
 
-        # TOdo: Check dtype of loopuptable
+        # TODO: Check dtype of lookuptable
 
     def saveLookupTable(self, tablename):
 
@@ -141,15 +153,26 @@ class M2Control(ChimeraObject):
         newhdu.header['OREFU'] = self.refOffset.u.to(units.degree).value
         newhdu.header['OREFV'] = self.refOffset.v.to(units.degree).value
 
+        newhdu.header['ALFOC'] = self.align_focus
+
         newhdu.writeto(tablename)
 
     def getLookupTable(self):
         return self.lookuptable
 
+
+    def getState(self):
+        self.loopControl.acquire()
+        rstate = self.state
+        self.loopControl.release()
+
+        return rstate
+
     @lock
     def activate(self):
 
         self.loopControl.acquire()
+        self.state = State.ACTIVE
         self.loop_timeout = self["update_time"]
         self.loopControl.notify()
         self.loopControl.release()
@@ -157,6 +180,7 @@ class M2Control(ChimeraObject):
     @lock
     def deactivate(self):
         self.loopControl.acquire()
+        self.state = State.STOP
         self.loop_timeout = None
         self.loopControl.release()
 
@@ -165,41 +189,33 @@ class M2Control(ChimeraObject):
 
         self.log.debug("Updating M2 position...")
 
-        tel = self.getTel()
         focuser = self.getFocuser()
 
-        pos = tel.getPositionAltAz()
+        offset_list = self.getOffset()
 
-        dist = np.array([
-                            pos.angsep(Position.fromAltAz(
-                                Coord.fromD(self.lookuptable['ALT'][i]),
-                                Coord.fromD(self.lookuptable['AZ'][i]))).D for i in range(len(self.lookuptable))
-                         ]
-                        )
-
-        if self['distance_tolerance'] is not None and np.min(dist) > self["distance_tolerance"]:
-            self.log.debug('Current position too far from closest value')
-            return
-
-        index = np.argmin(dist)
-
-        offset_list = [
-            (self.lookuptable['X'][index] - self.lookuptable['RX'][index] - self.refOffset.x.to(units.mm).value,
-             FocuserAxis.X, 1e-3),
-            (self.lookuptable['Y'][index] - self.lookuptable['RY'][index] - self.refOffset.y.to(units.mm).value,
-             FocuserAxis.Y, 1e-3),
-            (self.lookuptable['Z'][index] - self.lookuptable['RZ'][index] - self.refOffset.z.to(units.mm).value,
-             FocuserAxis.Z, 1e-3),
-            (self.lookuptable['U'][index] - self.lookuptable['RU'][index] - self.refOffset.u.to(units.degree).value,
-             FocuserAxis.U, 1e-3),
-            (self.lookuptable['V'][index] - self.lookuptable['RV'][index] - self.refOffset.v.to(units.degree).value,
-             FocuserAxis.V, 1e-3), ]
+        max_move_factor = 5.
 
         for offset in offset_list:
-            if offset[0] > offset[2]:
-                focuser.moveOut(abs(offset[0]),axis=offset[1])
-            elif -offset[0] > offset[2]:
-                focuser.moveIn(abs(offset[0]),axis=offset[1])
+
+            currentpos = focuser.getPosition(offset[1])
+            diff = offset[0] - currentpos
+            if (offset[2] <  np.abs(diff) < max_move_factor*offset[2]) or \
+                    (np.abs(diff) > max_move_factor*offset[2] and self.state != State.ACTIVE):
+                self.log.debug('Moving %s to %6.3f (current position is %6.3f)' % (offset[1],offset[0],currentpos))
+                focuser.moveTo(offset[0]/focuser[offset[3]],axis=offset[1])
+            elif np.abs(diff) >= max_move_factor*offset[2]:
+                moveto = currentpos +  max_move_factor*offset[2] if diff > 0 else currentpos - max_move_factor*offset[2]
+                self.log.debug('Offset on %s too large (%+6.2e). Maximum %5.2e. '
+                               'Moving to %6.3f.' % (offset[1],
+                                                     np.abs(diff),
+                                                     max_move_factor * offset[2],
+                                                     moveto))
+                focuser.moveTo(moveto/focuser[offset[3]],axis=offset[1])
+            else:
+                self.log.debug('Offset in %s (%+6.1e) too small (threshold = %5.2e).' % (offset[1],
+                                                                                        diff,
+                                                                                        offset[2]))
+
 
         self.updateComplete(offset_list)
 
@@ -235,6 +251,12 @@ class M2Control(ChimeraObject):
     def getRefPos(self):
         return self.refPos
 
+    def getCurrentSavedPos(self):
+        return self.currentPos
+
+    def getRefOffset(self):
+        return self.refOffset
+
     def setRefOffset(self):
         '''
         Sets reference offset to current focuser position.
@@ -246,6 +268,7 @@ class M2Control(ChimeraObject):
             self.log.warning("Couldn't find focuser.")
             return False
 
+        self.log.debug('%s %s' % (self.refPos.x,focuser.getPosition(FocuserAxis.X)*units.mm))
         self.refOffset.x = self.refPos.x-focuser.getPosition(FocuserAxis.X)*units.mm
         self.refOffset.y = self.refPos.y-focuser.getPosition(FocuserAxis.Y)*units.mm
         self.refOffset.z = self.refPos.z-focuser.getPosition(FocuserAxis.Z)*units.mm
@@ -289,11 +312,31 @@ class M2Control(ChimeraObject):
             self.log.warning("Couldn't find focuser.")
             return False
 
+        # offset_list = self.getOffset()
         self.refOffset.x = self.currentPos.x-focuser.getPosition(FocuserAxis.X)*units.mm
         self.refOffset.y = self.currentPos.y-focuser.getPosition(FocuserAxis.Y)*units.mm
         self.refOffset.z = self.currentPos.z-focuser.getPosition(FocuserAxis.Z)*units.mm
-        self.refOffset.u = self.currentPos.v-focuser.getPosition(FocuserAxis.U)*units.degree
-        self.refOffset.v = self.currentPos.w-focuser.getPosition(FocuserAxis.V)*units.degree
+        self.refOffset.u = self.currentPos.u-focuser.getPosition(FocuserAxis.U)*units.degree
+        self.refOffset.v = self.currentPos.v-focuser.getPosition(FocuserAxis.V)*units.degree
+
+    def reset(self):
+        self.currentPos = HexapodAxes()
+        self.refOffset = HexapodAxes()
+
+    def calibrate(self):
+
+        self.reset()
+        self.setRefPos()
+
+        offset_list = self.getOffset()
+        self.currentPos.x = offset_list[0][0]*units.mm
+        self.currentPos.y = offset_list[1][0]*units.mm
+        self.currentPos.z = offset_list[2][0]*units.mm
+        self.currentPos.u = offset_list[3][0]*units.degree
+        self.currentPos.v = offset_list[4][0]*units.degree
+
+        self.setupOffset()
+
 
     def add(self,name=''):
 
@@ -336,6 +379,58 @@ class M2Control(ChimeraObject):
 
         self.lookuptable = np.append(self.lookuptable,entry)
 
+    def getOffset(self):
+
+        tel = self.getTel()
+        pos = tel.getPositionAltAz()
+
+        dist = np.array([
+                            pos.angsep(Position.fromAltAz(
+                                Coord.fromD(self.lookuptable['ALT'][i]),
+                                Coord.fromD(self.lookuptable['AZ'][i]))).D for i in range(len(self.lookuptable))
+                         ]
+                        )
+
+        if self['distance_tolerance'] is not None and np.min(dist) > self["distance_tolerance"]:
+            self.log.warning('Current position too far from closest value')
+            self.state = State.RANGE
+
+        index = np.argmin(dist)
+
+        return [
+            (self.lookuptable['X'][index] - self.lookuptable['RX'][index] + self.refPos.x.to(units.mm).value -
+             self.refOffset.x.to(units.mm).value,
+             FocuserAxis.X, 5e-4,'step_x'),
+            (self.lookuptable['Y'][index] - self.lookuptable['RY'][index] + self.refPos.y.to(units.mm).value -
+             self.refOffset.y.to(units.mm).value,
+             FocuserAxis.Y, 5e-4,'step_y'),
+            (self.lookuptable['Z'][index] - self.lookuptable['RZ'][index] + self.refPos.z.to(units.mm).value -
+             self.refOffset.z.to(units.mm).value,
+             FocuserAxis.Z, 5e-4,'step_z'),
+            (self.lookuptable['U'][index] - self.lookuptable['RU'][index] + self.refPos.u.to(units.degree).value -
+             self.refOffset.u.to(units.degree).value,
+             FocuserAxis.U, 1e-5,'step_u'),
+            (self.lookuptable['V'][index] - self.lookuptable['RV'][index] + self.refPos.v.to(units.degree).value -
+             self.refOffset.v.to(units.degree).value,
+             FocuserAxis.V, 1e-5,'step_v'), ]
+
+        # return [
+        #     (self.lookuptable['X'][index] - self.refOffset.x.to(units.mm).value +
+        #      self.lookuptable['RX'][index] - self.refPos.x.to(units.mm).value,
+        #      FocuserAxis.X, 1e-3,'step_x'),
+        #     (self.lookuptable['Y'][index] - self.refOffset.y.to(units.mm).value +
+        #      self.lookuptable['RY'][index] - self.refPos.y.to(units.mm).value,
+        #      FocuserAxis.Y, 1e-3,'step_y'),
+        #     (self.lookuptable['Z'][index] - self.refOffset.z.to(units.mm).value +
+        #      self.lookuptable['RZ'][index] - self.refPos.z.to(units.mm).value,
+        #      FocuserAxis.Z, 1e-3,'step_z'),
+        #     (self.lookuptable['U'][index] - self.refOffset.u.to(units.degree).value +
+        #      self.lookuptable['RU'][index] - self.refPos.u.to(units.degree).value,
+        #      FocuserAxis.U, 1e-3,'step_u'),
+        #     (self.lookuptable['V'][index] - self.refOffset.v.to(units.degree).value +
+        #      self.lookuptable['RV'][index] - self.refPos.v.to(units.degree).value,
+        #      FocuserAxis.V, 1e-3,'step_v'), ]
+
     def getAlignFocus(self):
         return self.align_focus
 
@@ -350,7 +445,7 @@ class M2Control(ChimeraObject):
             return False
 
         tel.slewBegin += self.getProxy()._watchSlewBegin
-        tel.slewComplete += self.getProxy()._watchSlewComplete
+        # tel.slewComplete += self.getProxy()._watchSlewComplete
         tel.trackingStarted += self.getProxy()._watchTrackingStarted
         tel.trackingStopped += self.getProxy()._watchTrackingStopped
 
@@ -363,24 +458,28 @@ class M2Control(ChimeraObject):
             return False
 
         tel.slewBegin -= self.getProxy()._watchSlewBegin
+        # tel.slewComplete -= self.getProxy()._watchSlewComplete
         tel.trackingStarted -= self.getProxy()._watchTrackingStarted
         tel.trackingStopped -= self.getProxy()._watchTrackingStopped
 
-    def _watchSlewBegin(self):
+    def _watchSlewBegin(self,target):
 
-        self.abort.set()
-        self.loop_timeout = None
+        # self.abort.set()
+        # self.loop_timeout = None
+        self.deactivate()
 
-    def _watchTrackingStarted(self):
+    def _watchTrackingStarted(self, position):
 
         if self["auto"]:
-            self.abort.clear()
-            self.loop_timeout = self["update_time"]
+            self.activate()
+            # self.abort.clear()
+            # self.loop_timeout = self["update_time"]
 
-    def _watchTrackingStopped(self):
+    def _watchTrackingStopped(self, position, status):
 
-        self.abort.set()
-        self.loop_timeout = None
+        self.deactivate()
+        # self.abort.set()
+        # self.loop_timeout = None
 
     @event
     def updateComplete(self, position):
