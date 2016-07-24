@@ -45,7 +45,7 @@ class ChimeraM2Control(ChimeraCLI):
                            help="M2Control controller to be used")
 
         self.addInstrument(name="tel",
-                           cls="telescope",
+                           cls="Telescope",
                            required=True,
                            helpGroup="M2Control",
                            help="Telescope controller to be used")

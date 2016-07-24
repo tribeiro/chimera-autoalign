@@ -289,6 +289,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
             m2cl.setAlignFocus(hexapod_offset.z.to(units.mm).value)
             m2cl.reset()
             m2cl.calibrate()
+            m2cl.activate()
 
         # Will leave m2cl deactivated. Should I activate it back in case it was activated?In
 
