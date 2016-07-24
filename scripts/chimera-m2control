@@ -136,6 +136,9 @@ class ChimeraM2Control(ChimeraCLI):
         lookuptable = self.m2control.getLookupTable()
         ax.scatter(lookuptable["AZ"] * np.pi / 180., 90 - lookuptable["ALT"], marker = '.',
                    color='r', alpha=1, s=20)
+        ax.plot(lookuptable["AZ"] * np.pi / 180., 90 - lookuptable["ALT"],
+                'b:')
+
         ax.grid(True)
         # ax.set_ylim(90 - altitude_min + 10, 0)
         ax.set_yticklabels(90 - np.array(ax.get_yticks(), dtype=int))
