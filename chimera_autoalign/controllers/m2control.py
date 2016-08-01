@@ -11,6 +11,8 @@ from chimera.util.enum import Enum
 
 from chimera_autoalign.util.mkoptics import HexapodAxes
 
+from collections import OrderedDict
+
 from astropy.io import fits
 from astropy import units
 from astropy.coordinates import Angle
@@ -34,6 +36,43 @@ lookuptable_dtype = [('NAME', 'a25'), ('ALT', np.float), ('AZ', np.float),
 
 class LookupTableException(ChimeraException):
     pass
+
+class M2Model():
+
+    CX = np.array([])
+    CY = np.array([])
+    CZ = np.array([])
+    CU = np.array([])
+    CV = np.array([])
+
+    def __getattr__(self, item):
+        if item == 'X' or item == 'CX':
+            return self.CX
+        elif item == 'Y' or item == 'CY':
+            return self.CY
+        elif item == 'Z' or item == 'CZ':
+            return self.CZ
+        elif item == 'U' or item == 'CU':
+            return self.CU
+        elif item == 'V' or item == 'CV':
+            return self.CV
+        else:
+            raise AttributeError('No %s choose between X, Y, Z, U or V')
+
+    def __setattr__(self, key, value):
+
+        if key == 'X' or key == 'CX':
+            self.CX = value
+        elif key == 'Y' or key == 'CY':
+            self.CY = value
+        elif key == 'Z' or key == 'CZ':
+            self.CZ = value
+        elif key == 'U' or key == 'CU':
+            self.CU = value
+        elif key == 'V' or key == 'CV':
+            self.CV = value
+        else:
+            raise AttributeError('No %s choose between X, Y, Z, U or V')
 
 class M2Control(ChimeraObject):
     """
@@ -75,6 +114,7 @@ class M2Control(ChimeraObject):
         self.currentPos = HexapodAxes()
         self.align_focus = None
         self.state = State.STOP
+        self.m2coef = M2Model()
 
     def __start__(self):
 
@@ -134,6 +174,23 @@ class M2Control(ChimeraObject):
         if 'ALFOC' in hdulist[hduindex].header.keys():
             self.align_focus = hdulist[hduindex].header['ALFOC']
 
+        self.m2coef.CX = np.zeros(hdulist[hduindex]['NCX'])
+        self.m2coef.CY = np.zeros(hdulist[hduindex]['NCY'])
+        self.m2coef.CZ = np.zeros(hdulist[hduindex]['NCZ'])
+        self.m2coef.CU = np.zeros(hdulist[hduindex]['NCU'])
+        self.m2coef.CV = np.zeros(hdulist[hduindex]['NCV'])
+
+        for i in range(len(self.m2coef.CX)):
+            self.m2coef.CX[i] = hdulist[hduindex]['CX%i' % i]
+        for i in range(len(self.m2coef.CY)):
+            self.m2coef.CY[i] = hdulist[hduindex]['CY%i' % i]
+        for i in range(len(self.m2coef.CZ)):
+            self.m2coef.CZ[i] = hdulist[hduindex]['CZ%i' % i]
+        for i in range(len(self.m2coef.CU)):
+            self.m2coef.CU[i] = hdulist[hduindex]['CU%i' % i]
+        for i in range(len(self.m2coef.CV)):
+            self.m2coef.CV[i] = hdulist[hduindex]['CV%i' % i]
+
         self.lookuptable = hdulist[hduindex].data
 
         # TODO: Check dtype of lookuptable
@@ -154,6 +211,23 @@ class M2Control(ChimeraObject):
         newhdu.header['OREFV'] = self.refOffset.v.to(units.degree).value
 
         newhdu.header['ALFOC'] = self.align_focus
+
+        newhdu.header['NCX'] = len(self.m2coef.CX)
+        newhdu.header['NCY'] = len(self.m2coef.CY)
+        newhdu.header['NCZ'] = len(self.m2coef.CZ)
+        newhdu.header['NCU'] = len(self.m2coef.CU)
+        newhdu.header['NCV'] = len(self.m2coef.CV)
+
+        for i,c in enumerate(self.m2coef.CX):
+            newhdu.header['CX%i' % i] = c
+        for i,c in enumerate(self.m2coef.CY):
+            newhdu.header['CY%i' % i] = c
+        for i,c in enumerate(self.m2coef.CZ):
+            newhdu.header['CZ%i' % i] = c
+        for i,c in enumerate(self.m2coef.CU):
+            newhdu.header['CU%i' % i] = c
+        for i,c in enumerate(self.m2coef.CV):
+            newhdu.header['CV%i' % i] = c
 
         newhdu.writeto(tablename)
 
@@ -191,33 +265,35 @@ class M2Control(ChimeraObject):
 
         focuser = self.getFocuser()
 
-        offset_list = self.getOffset()
+        position_list = self.getModelPosition()
 
-        max_move_factor = 5.
+        #
+        # max_move_factor = 5.
+        #
+        for position in position_list:
+            focuser.moveTo(position[0]/focuser[position[2]],axis=position[1])
+        #
+        #     currentpos = focuser.getPosition(offset[1])
+        #     diff = offset[0] - currentpos
+        #     if (offset[2] <  np.abs(diff) < max_move_factor*offset[2]) or \
+        #             (np.abs(diff) > max_move_factor*offset[2] and self.state != State.ACTIVE):
+        #         self.log.debug('Moving %s to %6.3f (current position is %6.3f)' % (offset[1],offset[0],currentpos))
+        #         focuser.moveTo(offset[0]/focuser[offset[3]],axis=offset[1])
+        #     elif np.abs(diff) >= max_move_factor*offset[2]:
+        #         moveto = currentpos +  max_move_factor*offset[2] if diff > 0 else currentpos - max_move_factor*offset[2]
+        #         self.log.debug('Offset on %s too large (%+6.2e). Maximum %5.2e. '
+        #                        'Moving to %6.3f.' % (offset[1],
+        #                                              np.abs(diff),
+        #                                              max_move_factor * offset[2],
+        #                                              moveto))
+        #         focuser.moveTo(moveto/focuser[offset[3]],axis=offset[1])
+        #     else:
+        #         self.log.debug('Offset in %s (%+6.1e) too small (threshold = %5.2e).' % (offset[1],
+        #                                                                                 diff,
+        #                                                                                 offset[2]))
 
-        for offset in offset_list:
 
-            currentpos = focuser.getPosition(offset[1])
-            diff = offset[0] - currentpos
-            if (offset[2] <  np.abs(diff) < max_move_factor*offset[2]) or \
-                    (np.abs(diff) > max_move_factor*offset[2] and self.state != State.ACTIVE):
-                self.log.debug('Moving %s to %6.3f (current position is %6.3f)' % (offset[1],offset[0],currentpos))
-                focuser.moveTo(offset[0]/focuser[offset[3]],axis=offset[1])
-            elif np.abs(diff) >= max_move_factor*offset[2]:
-                moveto = currentpos +  max_move_factor*offset[2] if diff > 0 else currentpos - max_move_factor*offset[2]
-                self.log.debug('Offset on %s too large (%+6.2e). Maximum %5.2e. '
-                               'Moving to %6.3f.' % (offset[1],
-                                                     np.abs(diff),
-                                                     max_move_factor * offset[2],
-                                                     moveto))
-                focuser.moveTo(moveto/focuser[offset[3]],axis=offset[1])
-            else:
-                self.log.debug('Offset in %s (%+6.1e) too small (threshold = %5.2e).' % (offset[1],
-                                                                                        diff,
-                                                                                        offset[2]))
-
-
-        self.updateComplete(offset_list)
+        self.updateComplete(position_list)
 
     def getTel(self):
         if self["telescope"] is not None:
@@ -313,11 +389,11 @@ class M2Control(ChimeraObject):
             return False
 
         # offset_list = self.getOffset()
-        self.refOffset.x = self.currentPos.x-focuser.getPosition(FocuserAxis.X)*units.mm
-        self.refOffset.y = self.currentPos.y-focuser.getPosition(FocuserAxis.Y)*units.mm
-        self.refOffset.z = self.currentPos.z-focuser.getPosition(FocuserAxis.Z)*units.mm
-        self.refOffset.u = self.currentPos.u-focuser.getPosition(FocuserAxis.U)*units.degree
-        self.refOffset.v = self.currentPos.v-focuser.getPosition(FocuserAxis.V)*units.degree
+        self.refOffset.x = focuser.getPosition(FocuserAxis.X)*units.mm-self.currentPos.x
+        self.refOffset.y = focuser.getPosition(FocuserAxis.Y)*units.mm-self.currentPos.y
+        self.refOffset.z = focuser.getPosition(FocuserAxis.Z)*units.mm-self.currentPos.z
+        self.refOffset.u = focuser.getPosition(FocuserAxis.U)*units.degree-self.currentPos.u
+        self.refOffset.v = focuser.getPosition(FocuserAxis.V)*units.degree-self.currentPos.v
 
     def reset(self):
         self.currentPos = HexapodAxes()
@@ -328,7 +404,7 @@ class M2Control(ChimeraObject):
         self.reset()
         self.setRefPos()
 
-        offset_list = self.getOffset()
+        offset_list = self.getModelPosition()
         self.currentPos.x = offset_list[0][0]*units.mm
         self.currentPos.y = offset_list[1][0]*units.mm
         self.currentPos.z = offset_list[2][0]*units.mm
@@ -400,7 +476,7 @@ class M2Control(ChimeraObject):
         return [
             (self.lookuptable['X'][index] - self.lookuptable['RX'][index] + self.refPos.x.to(units.mm).value -
              self.refOffset.x.to(units.mm).value,
-             FocuserAxis.X, 5e-4,'step_x'),
+              FocuserAxis.X, 5e-4,'step_x'),
             (self.lookuptable['Y'][index] - self.lookuptable['RY'][index] + self.refPos.y.to(units.mm).value -
              self.refOffset.y.to(units.mm).value,
              FocuserAxis.Y, 5e-4,'step_y'),
@@ -436,6 +512,88 @@ class M2Control(ChimeraObject):
 
     def setAlignFocus(self,value):
         self.align_focus = value
+
+    def getModelPosition(self):
+
+        tel = self.getTel()
+        pos = tel.getPositionAltAz()
+
+        alt = pos.alt.R
+        az = pos.az.R
+
+        temp = tel.getSensors()
+
+        tdict = {}
+
+        for entry in temp:
+            tdict[entry[0]] = entry[1]
+
+        GX = np.cos(alt)*np.sin(az)
+        GY = np.cos(alt)*np.cos(az)
+        GZ = np.sin(alt)
+        T = tdict['TubeRod']
+
+        def fitfunc(p,coords):
+            x,y,z,t = coords[0],coords[1],coords[2],coords[3]
+            return p[0] + p[1] * x + p[2] * y + p[3] * z + p[4] * t + p[5] * t * t
+
+        return [(fitfunc(self.m2coef['X'],[GX,GY,GZ,T]) + self.refOffset.x.to(units.mm).value,
+                 FocuserAxis.X, 'step_x'),
+                (fitfunc(self.m2coef['Y'],[GX,GY,GZ,T]) + self.refOffset.y.to(units.mm).value,
+                 FocuserAxis.Y, 'step_y'),
+                (fitfunc(self.m2coef['Z'],[GX,GY,GZ,T]) + self.refOffset.z.to(units.mm).value,
+                 FocuserAxis.Z, 'step_z'),
+                (fitfunc(self.m2coef['U'],[GX,GY,GZ,T]) + self.refOffset.u.to(units.degree).value,
+                 FocuserAxis.U, 'step_u'),
+                (fitfunc(self.m2coef['V'],[GX,GY,GZ,T]) + self.refOffset.v.to(units.degree).value,
+                FocuserAxis.V, 'step_v'),
+                ]
+
+    def fitM2Control(self):
+
+        for axis in 'XYZUV':
+            self._fitM2ControlAxis(axis)
+
+        return True
+
+    def _fitM2ControlAxis(self,axis):
+        '''
+        Fit M2 control law for a specific axis.
+        :param axis:
+        :param orders:
+        :return:
+        '''
+
+        GX = np.cos(self.lookuptable['ALT'] * np.pi / 180.)*np.sin(self.lookuptable['AZ'] * np.pi / 180.)
+        GY = np.cos(self.lookuptable['ALT'] * np.pi / 180.)*np.cos(self.lookuptable['AZ'] * np.pi / 180.)
+        GZ = np.sin(self.lookuptable['ALT'] * np.pi / 180.)
+        T = self.lookuptable['TubeRod']
+
+        data = self.lookuptable[axis]
+
+        from scipy.optimize import leastsq
+
+
+        def fitfunc(p,coords):
+            x,y,z,t = coords[0],coords[1],coords[2],coords[3]
+            return p[0] + p[1] * x + p[2] * y + p[3] * z + p[4] * t + p[5] * t * t
+
+        errfunc = lambda p, x: fitfunc(p, x) - x[4]
+
+        p0 = np.zeros(6)+1.e-1
+
+        # Get good starting points for zero-point plus temperature dependency
+        ct = np.polyfit(T,data,2)
+
+        p0[0] = ct[0]
+        p0[-2] = ct[1]
+        p0[-1] = ct[2]
+
+        p1, flag = leastsq(errfunc, p0, args=([GX,GY,GZ,T,data],))
+
+        self.m2coef[axis] = p1
+
+        return flag
 
     def _connectTelescopeEvents(self):
         # Todo
