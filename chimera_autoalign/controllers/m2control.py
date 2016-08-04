@@ -45,7 +45,7 @@ class M2Model():
     CU = np.array([])
     CV = np.array([])
 
-    def __getattr__(self, item):
+    def __getitem__(self, item):
         if item == 'X' or item == 'CX':
             return self.CX
         elif item == 'Y' or item == 'CY':
@@ -57,9 +57,9 @@ class M2Model():
         elif item == 'V' or item == 'CV':
             return self.CV
         else:
-            raise AttributeError('No %s choose between X, Y, Z, U or V')
+            raise AttributeError('No %s choose between X, Y, Z, U or V' % item)
 
-    def __setattr__(self, key, value):
+    def __setitem__(self, key, value):
 
         if key == 'X' or key == 'CX':
             self.CX = value
@@ -72,7 +72,7 @@ class M2Model():
         elif key == 'V' or key == 'CV':
             self.CV = value
         else:
-            raise AttributeError('No %s choose between X, Y, Z, U or V')
+            raise AttributeError('No %s choose between X, Y, Z, U or V' % item)
 
 class M2Control(ChimeraObject):
     """
@@ -159,37 +159,42 @@ class M2Control(ChimeraObject):
 
         hdulist = fits.open(tablename)
 
-        self.refPos.x = hdulist[hduindex].header['REFX'] * units.mm
-        self.refPos.y = hdulist[hduindex].header['REFY'] * units.mm
-        self.refPos.z = hdulist[hduindex].header['REFZ'] * units.mm
-        self.refPos.u = hdulist[hduindex].header['REFU'] * units.degree
-        self.refPos.v = hdulist[hduindex].header['REFV'] * units.degree
+        try:
+            self.refPos.x = hdulist[hduindex].header['REFX'] * units.mm
+            self.refPos.y = hdulist[hduindex].header['REFY'] * units.mm
+            self.refPos.z = hdulist[hduindex].header['REFZ'] * units.mm
+            self.refPos.u = hdulist[hduindex].header['REFU'] * units.degree
+            self.refPos.v = hdulist[hduindex].header['REFV'] * units.degree
 
-        self.refOffset.x = hdulist[hduindex].header['OREFX'] * units.mm
-        self.refOffset.y = hdulist[hduindex].header['OREFY'] * units.mm
-        self.refOffset.z = hdulist[hduindex].header['OREFZ'] * units.mm
-        self.refOffset.u = hdulist[hduindex].header['OREFU'] * units.degree
-        self.refOffset.v = hdulist[hduindex].header['OREFV'] * units.degree
+            self.refOffset.x = hdulist[hduindex].header['OREFX'] * units.mm
+            self.refOffset.y = hdulist[hduindex].header['OREFY'] * units.mm
+            self.refOffset.z = hdulist[hduindex].header['OREFZ'] * units.mm
+            self.refOffset.u = hdulist[hduindex].header['OREFU'] * units.degree
+            self.refOffset.v = hdulist[hduindex].header['OREFV'] * units.degree
 
-        if 'ALFOC' in hdulist[hduindex].header.keys():
-            self.align_focus = hdulist[hduindex].header['ALFOC']
+            if 'ALFOC' in hdulist[hduindex].header.keys():
+                self.align_focus = hdulist[hduindex].header['ALFOC']
 
-        self.m2coef.CX = np.zeros(hdulist[hduindex]['NCX'])
-        self.m2coef.CY = np.zeros(hdulist[hduindex]['NCY'])
-        self.m2coef.CZ = np.zeros(hdulist[hduindex]['NCZ'])
-        self.m2coef.CU = np.zeros(hdulist[hduindex]['NCU'])
-        self.m2coef.CV = np.zeros(hdulist[hduindex]['NCV'])
 
-        for i in range(len(self.m2coef.CX)):
-            self.m2coef.CX[i] = hdulist[hduindex]['CX%i' % i]
-        for i in range(len(self.m2coef.CY)):
-            self.m2coef.CY[i] = hdulist[hduindex]['CY%i' % i]
-        for i in range(len(self.m2coef.CZ)):
-            self.m2coef.CZ[i] = hdulist[hduindex]['CZ%i' % i]
-        for i in range(len(self.m2coef.CU)):
-            self.m2coef.CU[i] = hdulist[hduindex]['CU%i' % i]
-        for i in range(len(self.m2coef.CV)):
-            self.m2coef.CV[i] = hdulist[hduindex]['CV%i' % i]
+            self.m2coef.CX = np.zeros(hdulist[hduindex]['NCX'])
+            self.m2coef.CY = np.zeros(hdulist[hduindex]['NCY'])
+            self.m2coef.CZ = np.zeros(hdulist[hduindex]['NCZ'])
+            self.m2coef.CU = np.zeros(hdulist[hduindex]['NCU'])
+            self.m2coef.CV = np.zeros(hdulist[hduindex]['NCV'])
+
+            for i in range(len(self.m2coef.CX)):
+                self.m2coef.CX[i] = hdulist[hduindex]['CX%i' % i]
+            for i in range(len(self.m2coef.CY)):
+                self.m2coef.CY[i] = hdulist[hduindex]['CY%i' % i]
+            for i in range(len(self.m2coef.CZ)):
+                self.m2coef.CZ[i] = hdulist[hduindex]['CZ%i' % i]
+            for i in range(len(self.m2coef.CU)):
+                self.m2coef.CU[i] = hdulist[hduindex]['CU%i' % i]
+            for i in range(len(self.m2coef.CV)):
+                self.m2coef.CV[i] = hdulist[hduindex]['CV%i' % i]
+        except Exception, e:
+            self.log.warning('Could not load model coeficients.')
+            pass
 
         self.lookuptable = hdulist[hduindex].data
 
@@ -271,6 +276,8 @@ class M2Control(ChimeraObject):
         # max_move_factor = 5.
         #
         for position in position_list:
+            currentpos = focuser.getPosition(position[1])
+            self.log.debug('Moving %s to %6.3f (current position is %6.3f)' % (position[1],position[0],currentpos))
             focuser.moveTo(position[0]/focuser[position[2]],axis=position[1])
         #
         #     currentpos = focuser.getPosition(offset[1])
