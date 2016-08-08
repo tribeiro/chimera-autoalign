@@ -252,6 +252,7 @@ class M2Control(ChimeraObject):
 
         self.loopControl.acquire()
         self.state = State.ACTIVE
+        self.abort.clear()
         self.loop_timeout = self["update_time"]
         self.loopControl.notify()
         self.loopControl.release()
@@ -260,11 +261,12 @@ class M2Control(ChimeraObject):
     def deactivate(self):
         self.loopControl.acquire()
         self.state = State.STOP
+        self.abort.set()
         self.loop_timeout = None
         self.loopControl.release()
 
     @lock
-    def update(self):
+    def update(self, auto=False):
 
         self.log.debug("Updating M2 position...")
 
@@ -277,12 +279,13 @@ class M2Control(ChimeraObject):
         #
         # max_move_factor = 5.
         #
+        self.abort.clear()
         for position in position_list:
             self.log.debug('Updating %s' % position[1])
             currentpos = focuser.getPosition(position[1])
             self.log.debug('Moving %s to %6.3f (current position is %6.3f)' % (position[1],position[0],currentpos))
-            if self.state != State.ACTIVE:
-                self.log.debug('M2 control deactivated! Stop!')
+            if self.abort.isSet():
+                self.log.debug('M2 control sequence aborted! Stop!')
                 break
             elif np.abs(position[0] - currentpos) > 1e-3: # FIXME: Hard coded tolerance!!!
                 focuser.moveTo(position[0]/focuser[position[2]],axis=position[1])
