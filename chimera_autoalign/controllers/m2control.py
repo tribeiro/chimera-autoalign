@@ -259,6 +259,7 @@ class M2Control(ChimeraObject):
 
     @lock
     def deactivate(self):
+        self.log.debug('Deactivating m2 control law loop...')
         self.loopControl.acquire()
         self.state = State.STOP
         self.abort.set()

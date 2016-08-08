@@ -138,6 +138,14 @@ class AutoAlign(ChimeraObject,IAutofocus):
             self.log.debug('Activating M2 Control Law...')
             m2cl.activate()
             return None
+        elif step < 0 and self['m2control'] is not None:
+
+            m2cl = self.getM2CL()
+            # self.log.debug('Deactivating M2 position...')
+            # m2cl.update()
+            self.log.debug('Deactivating M2 Control Law...')
+            m2cl.deactivate()
+            return None
 
         self.log.debug('Calling AUTOALIGN...')
 
