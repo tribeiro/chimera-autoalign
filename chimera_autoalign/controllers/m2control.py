@@ -270,15 +270,21 @@ class M2Control(ChimeraObject):
 
         focuser = self.getFocuser()
 
+        self.log.debug('Getting model position...')
+
         position_list = self.getModelPosition()
 
         #
         # max_move_factor = 5.
         #
         for position in position_list:
+            self.log.debug('Updating %s' % position[1])
             currentpos = focuser.getPosition(position[1])
             self.log.debug('Moving %s to %6.3f (current position is %6.3f)' % (position[1],position[0],currentpos))
-            focuser.moveTo(position[0]/focuser[position[2]],axis=position[1])
+            if np.abs(position[2] - currentpos) > 1e-3: # FIXME: Hard coded tolerance!!!
+                focuser.moveTo(position[0]/focuser[position[2]],axis=position[1])
+            else:
+                self.log.debug('Offset in %s too small... Skipping...' % position[1])
         #
         #     currentpos = focuser.getPosition(offset[1])
         #     diff = offset[0] - currentpos
