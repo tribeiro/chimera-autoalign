@@ -281,7 +281,10 @@ class M2Control(ChimeraObject):
             self.log.debug('Updating %s' % position[1])
             currentpos = focuser.getPosition(position[1])
             self.log.debug('Moving %s to %6.3f (current position is %6.3f)' % (position[1],position[0],currentpos))
-            if np.abs(position[2] - currentpos) > 1e-3: # FIXME: Hard coded tolerance!!!
+            if self.state != State.ACTIVE:
+                self.log.debug('M2 control deactivated! Stop!')
+                break
+            elif np.abs(position[0] - currentpos) > 1e-3: # FIXME: Hard coded tolerance!!!
                 focuser.moveTo(position[0]/focuser[position[2]],axis=position[1])
             else:
                 self.log.debug('Offset in %s too small... Skipping...' % position[1])
