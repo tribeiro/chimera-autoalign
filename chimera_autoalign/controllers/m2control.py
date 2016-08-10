@@ -193,8 +193,9 @@ class M2Control(ChimeraObject):
             for i in range(len(self.m2coef.CV)):
                 self.m2coef.CV[i] = hdulist[hduindex]['CV%i' % i]
         except Exception, e:
-            self.log.warning('Could not load model coeficients.')
-            pass
+            self.log.warning('Could not load model coeficients. Fitting new table.')
+            self.fitM2Control()
+            
 
         self.lookuptable = hdulist[hduindex].data
 
