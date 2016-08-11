@@ -436,7 +436,7 @@ class M2Control(ChimeraObject):
 
         self.add('calibrate_%s' % time.strftime("%Y%m%d-%H%M%S"))
         if self["table"] is not None:
-            root = self["table"].rsplit('.')
+            root = self["table"].rsplit('.')[0]
             self.saveLookupTable('%s_%s.fits' % (root,time.strftime("%Y%m%d-%H%M%S")))
 
     def add(self,name=''):
