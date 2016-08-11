@@ -158,6 +158,7 @@ class M2Control(ChimeraObject):
     def loadLookupTable(self, tablename, hduindex = 1):
 
         hdulist = fits.open(tablename)
+        self.lookuptable = hdulist[hduindex].data
 
         try:
             self.refPos.x = hdulist[hduindex].header['REFX'] * units.mm
@@ -195,9 +196,7 @@ class M2Control(ChimeraObject):
         except Exception, e:
             self.log.warning('Could not load model coeficients. Fitting new table.')
             self.fitM2Control()
-            
 
-        self.lookuptable = hdulist[hduindex].data
 
         # TODO: Check dtype of lookuptable
 
