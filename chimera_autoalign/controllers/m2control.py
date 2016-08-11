@@ -18,6 +18,7 @@ from astropy import units
 from astropy.coordinates import Angle
 import numpy as np
 import threading
+import time
 
 State = Enum("ACTIVE", "STOP", "ERROR", "RANGE")
 
@@ -433,6 +434,10 @@ class M2Control(ChimeraObject):
 
         self.setupOffset()
 
+        self.add('calibrate_%s' % time.strftime("%Y%m%d-%H%M%S"))
+        if self["table"] is not None:
+            root = self["table"].rsplit('.')
+            self.saveLookupTable('%s_%s.fits' % (root,time.strftime("%Y%m%d-%H%M%S")))
 
     def add(self,name=''):
 

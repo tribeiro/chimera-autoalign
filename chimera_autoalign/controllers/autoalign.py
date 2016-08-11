@@ -141,6 +141,8 @@ class AutoAlign(ChimeraObject,IAutofocus):
         elif step < 0 and self['m2control'] is not None:
 
             m2cl = self.getM2CL()
+            if step == -2:
+                m2cl.reset()
             # self.log.debug('Deactivating M2 position...')
             # m2cl.update()
             self.log.debug('Deactivating M2 Control Law...')
@@ -302,7 +304,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
         # If history file present, append current telescope state
         self.saveTelescopeState(object)
 
-        if m2cl is not None:
+        if (m2cl is not None) and (iter < niter):
             m2cl.setAlignFocus(hexapod_offset.z.to(units.mm).value)
             m2cl.reset()
             m2cl.calibrate()
