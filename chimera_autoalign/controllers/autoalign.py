@@ -78,6 +78,7 @@ class AutoAlign(ChimeraObject,IAutofocus):
                   'sign_y' : +1.,
                   'sign_u' : +1.,
                   'sign_v' : +1.,
+                  'map_weight': None  # SEXtractor weight map file (to mask out bad/vignetted regions of CCD)
                   }
 
     def __init__(self):
@@ -307,6 +308,10 @@ class AutoAlign(ChimeraObject,IAutofocus):
                                          "XWIN_IMAGE", "YWIN_IMAGE",
                                          "FLUX_BEST", "FWHM_IMAGE",
                                          "FLAGS"]
+
+        if self["map_weight"] is not None:
+            config['WEIGHT_TYPE'] = "map_weight"
+            config['WEIGHT_IMAGE'] = self["map_weight"]
 
         catalogName = os.path.splitext(frame.filename())[0] + ".catalog"
         configName = os.path.splitext(frame.filename())[0] + ".config"
